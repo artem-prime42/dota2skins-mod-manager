@@ -19,10 +19,11 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1360,
     height: 860,
-    minWidth: 1000,
+    minWidth: 1020,
     minHeight: 640,
-    backgroundColor: '#0d0d12',
+    backgroundColor: '#050506',
     autoHideMenuBar: true,
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -31,6 +32,9 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  win.on('maximize', () => win.webContents.send('win:maximized', true));
+  win.on('unmaximize', () => win.webContents.send('win:maximized', false));
 
   // dev: MM_SHOT=<path> saves a screenshot after load (used for automated UI checks)
   if (process.env.MM_SHOT) {
@@ -44,6 +48,11 @@ function createWindow() {
           if (process.env.MM_VIEW) {
             await win.webContents.executeJavaScript(
               `document.querySelector('[data-view="${process.env.MM_VIEW}"]')?.click()`);
+            await new Promise((r) => setTimeout(r, 2500));
+          }
+          if (process.env.MM_CAT) {
+            await win.webContents.executeJavaScript(
+              `document.querySelector('.rail-item[data-cat="${process.env.MM_CAT}"]')?.click()`);
             await new Promise((r) => setTimeout(r, 2500));
           }
           await new Promise((r) => setTimeout(r, 500));
@@ -90,6 +99,16 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => app.quit());
 
 function registerIpc() {
+  // ----- window controls -----
+  ipcMain.handle('win:minimize', () => win.minimize());
+  ipcMain.handle('win:maximize', () => {
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+    return win.isMaximized();
+  });
+  ipcMain.handle('win:close', () => win.close());
+  ipcMain.handle('win:isMaximized', () => win.isMaximized());
+
   // ----- settings -----
   ipcMain.handle('settings:get', () => ({
     ...settings.all(),

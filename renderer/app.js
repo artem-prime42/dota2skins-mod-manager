@@ -16,18 +16,50 @@ const CAT_RU = {
   towers: 'Башни', fonts: 'Шрифты', sites: 'Сайты', guides: 'Гайды', news: 'Новости',
 };
 
-// categories not shown in the catalog grid (tools has its own view; news is not mods)
+const CAT_ICON = {
+  all: 'apps', heroes: 'person', 'hero-items': 'swords', herofx: 'auto_fix_high',
+  'hero-sounds': 'record_voice_over', terrains: 'landscape', trees: 'forest', river: 'water',
+  creeps: 'bug_report', towers: 'cell_tower', roshan: 'skull', ancient: 'castle',
+  tormentor: 'deployed_code', wards: 'visibility', couriers: 'pets', pedestal: 'podium',
+  'creep-deny': 'block', shaders: 'palette', 'ti-bp-effects': 'auto_awesome',
+  'item-effects': 'bolt', 'ranged-attack': 'my_location', 'high-five': 'waving_hand',
+  backgrounds: 'wallpaper', huds: 'dashboard', emblems: 'military_tech',
+  'versus-screens': 'compare_arrows', 'item-icons': 'category', ranks: 'workspace_premium',
+  pings: 'notifications_active', cursors: 'arrow_selector_tool', fonts: 'text_fields',
+  announcers: 'mic', 'mega-kill': 'campaign', music: 'music_note', sounds: 'volume_up',
+  packs: 'inventory_2', optimization: 'speed', other: 'widgets', guides: 'menu_book',
+  sites: 'language', tools: 'build', news: 'newspaper',
+};
+
+// rail sections: [label, [categoryIds]]
+const RAIL_SECTIONS = [
+  ['Герои', ['heroes', 'hero-items', 'herofx', 'hero-sounds']],
+  ['Мир', ['terrains', 'trees', 'river', 'creeps', 'towers', 'roshan', 'ancient', 'tormentor', 'wards', 'couriers', 'pedestal', 'creep-deny']],
+  ['Эффекты', ['shaders', 'ti-bp-effects', 'item-effects', 'ranged-attack', 'high-five']],
+  ['Интерфейс', ['backgrounds', 'huds', 'emblems', 'versus-screens', 'item-icons', 'ranks', 'pings', 'cursors', 'fonts']],
+  ['Звук', ['announcers', 'mega-kill', 'music', 'sounds']],
+  ['Прочее', ['packs', 'optimization', 'other', 'guides', 'sites']],
+];
+
 const CATALOG_EXCLUDE = ['tools', 'news'];
+
+const SORTS = [
+  { key: 'default', label: 'По умолчанию' },
+  { key: 'date', label: 'Сначала новые' },
+  { key: 'name', label: 'По имени А-Я' },
+  { key: 'name-desc', label: 'По имени Я-А' },
+];
 
 const state = {
   view: 'catalog',
-  catalog: null,       // {mods, constants, guides, fetchedAt}
+  catalog: null,
   settings: null,
-  activeCategory: 'heroes',
+  activeCategory: 'all',
   search: '',
-  installedIndex: new Map(), // "cat|name|style" -> record
+  filters: { sort: 'default', tags: new Set(), installedOnly: false, group: '' },
+  installedIndex: new Map(),
   installing: new Set(),
-  modIndex: new Map(),  // name(lower) -> {categoryId, mod} for pack resolution
+  modIndex: new Map(),
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -37,8 +69,11 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function fmtMB(bytes) {
-  return (bytes / 1024 / 1024).toFixed(1);
+function fmtMB(bytes) { return (bytes / 1024 / 1024).toFixed(1); }
+
+function fmtDate(unix) {
+  if (!unix) return '';
+  return new Date(unix * 1000).toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function plural(n, one, few, many) {
@@ -63,13 +98,11 @@ function previewUrl(categoryId, preview) {
   return `${RAW_BASE}/assets/previews/${encodeURIComponent(categoryId)}/${encodeURIComponent(preview)}`;
 }
 
-function isVideo(src) {
-  return /\.(mp4|webm)$/i.test(src || '');
-}
+function isVideo(src) { return /\.(mp4|webm)$/i.test(src || ''); }
 
 function mediaHtml(url, { hoverPlay = false, autoplay = false } = {}) {
   if (!url) {
-    return `<div class="noimg"><svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>`;
+    return `<div class="noimg"><span class="ms" style="font-size:36px">image</span></div>`;
   }
   if (isVideo(url)) {
     return `<video src="${esc(url)}" muted loop playsinline preload="${autoplay ? 'auto' : 'none'}" ${autoplay ? 'autoplay' : ''} ${hoverPlay ? 'data-hoverplay="1"' : ''}></video>`;
@@ -99,11 +132,16 @@ function categoryMods(categoryId) {
   if (data.groups) {
     const out = [];
     for (const g of data.groups) {
-      for (const m of g.mods || []) out.push({ ...m, _group: g.name });
+      for (const m of g.mods || []) out.push({ ...m, _group: g.name, _groupId: g.id });
     }
     return out;
   }
   return [];
+}
+
+function isGrouped(categoryId) {
+  const data = state.catalog?.mods?.modsData?.[categoryId];
+  return !!(data && !Array.isArray(data) && data.groups);
 }
 
 function visibleCategories() {
@@ -116,18 +154,17 @@ function buildModIndex() {
   for (const c of state.catalog?.constants?.categories || []) {
     for (const m of categoryMods(c.id)) {
       if (m.name) state.modIndex.set(m.name.toLowerCase(), { categoryId: c.id, mod: m });
-      for (const s of m.styles || []) {
-        // styles resolve by parent name; pack lists reference plain names
-      }
     }
   }
 }
 
 function catName(id) {
+  if (id === 'all') return 'Все категории';
   return CAT_RU[id] || state.catalog?.constants?.translations?.[id] || id;
 }
 
-// installable = has a downloadable file (vpk/zip), not just an external link
+function catIcon(id) { return CAT_ICON[id] || 'extension'; }
+
 function installTarget(mod) {
   const f = mod.file;
   if (!f) return null;
@@ -135,20 +172,104 @@ function installTarget(mod) {
   return null;
 }
 
+function tagLabel(categoryId, tag) {
+  const cfg = state.catalog?.constants?.TAG_CONFIGS?.[categoryId];
+  return cfg?.map?.[tag] || tag;
+}
+
+function isInstalled(categoryId, m) {
+  return state.installedIndex.has(keyOf(categoryId, m.name, null)) ||
+    (m.styles || []).some((s) => state.installedIndex.has(keyOf(categoryId, m.name, s.label)));
+}
+
+// ---------- filtering / sorting ----------
+
+function collectTags(mods) {
+  const tags = new Map(); // tag -> count
+  for (const m of mods) {
+    for (const [k, v] of Object.entries(m.tags || {})) {
+      if (v) tags.set(k, (tags.get(k) || 0) + 1);
+    }
+  }
+  return [...tags.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function collectGroups(mods) {
+  const seen = new Set();
+  const out = [];
+  for (const m of mods) {
+    if (m._group && !seen.has(m._group)) {
+      seen.add(m._group);
+      out.push(m._group);
+    }
+  }
+  return out;
+}
+
+function applyFilters(mods, catForInstalled) {
+  const f = state.filters;
+  let out = mods;
+  if (f.group) out = out.filter((m) => m._group === f.group);
+  if (f.tags.size) {
+    out = out.filter((m) => [...f.tags].every((t) => m.tags?.[t]));
+  }
+  if (f.installedOnly) {
+    out = out.filter((m) => isInstalled(m._cat || catForInstalled, m));
+  }
+  const dateOf = (m) => m.meta?.date || 0;
+  switch (f.sort) {
+    case 'date': out = [...out].sort((a, b) => dateOf(b) - dateOf(a)); break;
+    case 'name': out = [...out].sort((a, b) => a.name.localeCompare(b.name)); break;
+    case 'name-desc': out = [...out].sort((a, b) => b.name.localeCompare(a.name)); break;
+  }
+  return out;
+}
+
+// ---------- window controls ----------
+
+$('#winMin').addEventListener('click', () => window.api.win.minimize());
+$('#winMax').addEventListener('click', () => window.api.win.maximize());
+$('#winClose').addEventListener('click', () => window.api.win.close());
+window.api.win.onMaximized((maxed) => {
+  $('#winMax').innerHTML = maxed
+    ? '<svg viewBox="0 0 12 12" width="12" height="12"><rect x="2" y="3.5" width="6.5" height="6.5" fill="none" stroke="currentColor" stroke-width="1.1" rx="1"/><path d="M4 3.5V2.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>'
+    : '<svg viewBox="0 0 12 12" width="12" height="12"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2" rx="1"/></svg>';
+});
+
 // ---------- navigation ----------
 
-document.querySelectorAll('.nav-item').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.view = btn.dataset.view;
-    render();
-  });
+document.querySelectorAll('.tb-tab').forEach((btn) => {
+  btn.addEventListener('click', () => switchView(btn.dataset.view));
 });
+
+function switchView(view) {
+  document.querySelectorAll('.tb-tab').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  state.view = view;
+  $('#catRail').classList.toggle('hidden', view !== 'catalog');
+  render();
+}
 
 $('#openModsFolderBtn').addEventListener('click', async () => {
   const r = await window.api.misc.openLangFolder();
   if (r.error) toast(r.error, 'error');
+});
+
+// global search
+let searchTimer = null;
+$('#globalSearch').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    state.search = e.target.value;
+    $('#clearSearch').classList.toggle('hidden', !state.search);
+    if (state.view !== 'catalog') switchView('catalog');
+    else renderCatalog();
+  }, 180);
+});
+$('#clearSearch').addEventListener('click', () => {
+  $('#globalSearch').value = '';
+  state.search = '';
+  $('#clearSearch').classList.add('hidden');
+  if (state.view === 'catalog') renderCatalog();
 });
 
 // ---------- views ----------
@@ -164,6 +285,42 @@ function render() {
   }
 }
 
+// ===== Category rail =====
+
+function renderRail() {
+  const rail = $('#catRail');
+  const cats = new Set(visibleCategories().map((c) => c.id));
+  let html = `
+    <button class="rail-item ${state.activeCategory === 'all' ? 'active' : ''}" data-cat="all">
+      <span class="ms">apps</span>Все категории
+    </button>`;
+  for (const [label, ids] of RAIL_SECTIONS) {
+    const present = ids.filter((id) => cats.has(id));
+    if (!present.length) continue;
+    html += `<div class="rail-section">${esc(label)}</div>`;
+    for (const id of present) {
+      html += `
+        <button class="rail-item ${state.activeCategory === id ? 'active' : ''}" data-cat="${esc(id)}">
+          <span class="ms">${catIcon(id)}</span>${esc(catName(id))}
+          <span class="rail-cnt">${categoryMods(id).length}</span>
+        </button>`;
+    }
+  }
+  rail.innerHTML = html;
+  rail.querySelectorAll('.rail-item').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.activeCategory = b.dataset.cat;
+      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '' };
+      if (state.search) {
+        state.search = '';
+        $('#globalSearch').value = '';
+        $('#clearSearch').classList.add('hidden');
+      }
+      renderCatalog();
+    });
+  });
+}
+
 // ===== Catalog =====
 
 function renderCatalog() {
@@ -177,114 +334,246 @@ function renderCatalog() {
         Не удалось загрузить каталог: ${esc(state.catalog.error)}<br><br>
         <button class="btn btn-primary" id="retryCat">Повторить</button>
       </div>`;
-    $('#retryCat').addEventListener('click', loadCatalog);
+    $('#retryCat').addEventListener('click', () => loadCatalog(true));
     return;
   }
 
-  const cats = visibleCategories();
-  const searching = state.search.trim().length > 0;
+  renderRail();
 
-  let mods;
-  if (searching) {
-    const q = state.search.trim().toLowerCase();
-    mods = [];
-    for (const c of cats) {
-      for (const m of categoryMods(c.id)) {
-        if (m.name && m.name.toLowerCase().includes(q)) mods.push({ ...m, _cat: c.id });
-      }
+  const searching = state.search.trim().length > 0;
+  if (searching) return renderSearchResults();
+  if (state.activeCategory === 'all') return renderHome();
+  renderCategory(state.activeCategory);
+}
+
+// --- home (all categories) ---
+
+function renderHome() {
+  const cats = visibleCategories();
+  const recent = (state.catalog.mods.recentlyAddedMods || [])
+    .map((r) => {
+      const hit = state.modIndex.get(r.name.toLowerCase());
+      return hit && hit.categoryId === (r.category === 'effects-packs' ? 'ti-bp-effects' : r.category)
+        ? { ...hit.mod, _cat: hit.categoryId }
+        : (state.modIndex.get(r.name.toLowerCase()) ? { ...state.modIndex.get(r.name.toLowerCase()).mod, _cat: state.modIndex.get(r.name.toLowerCase()).categoryId } : null);
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+
+  viewRoot.innerHTML = `
+    <div class="home-hero">
+      <h1>Моды для Dota 2</h1>
+      <p>${cats.reduce((n, c) => n + categoryMods(c.id).length, 0)} модов в ${cats.length} категориях · каталог Dota2PornFx${state.catalog.fetchedAt ? ' · обновлён ' + new Date(state.catalog.fetchedAt).toLocaleDateString('ru') : ''}</p>
+    </div>
+    ${recent.length ? `
+      <div class="section-h"><span class="ms">new_releases</span>Недавно добавленные</div>
+      <div class="recent-row">${recent.map((m, i) => cardHtml(m, i, true)).join('')}</div>` : ''}
+    <div class="section-h"><span class="ms">apps</span>Категории</div>
+    <div class="cat-tiles">
+      ${cats.map((c, i) => {
+        const prev = c.preview ? `${RAW_BASE}/assets/previews/categories/${encodeURIComponent(c.preview)}` : null;
+        return `
+        <div class="cat-tile" data-cat="${esc(c.id)}" style="--i:${Math.min(i, 24)}">
+          ${prev ? mediaHtml(prev) : ''}
+          <div class="ct-shade"></div>
+          <div class="ct-label">
+            <span class="ct-name">${esc(catName(c.id))}</span>
+            <span class="ct-cnt">${categoryMods(c.id).length}</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+
+  viewRoot.querySelectorAll('.cat-tile').forEach((t) => {
+    t.addEventListener('click', () => {
+      state.activeCategory = t.dataset.cat;
+      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '' };
+      renderCatalog();
+      $('#main').scrollTop = 0;
+    });
+  });
+  bindCards(viewRoot);
+}
+
+// --- search results ---
+
+function renderSearchResults() {
+  const q = state.search.trim().toLowerCase();
+  const cats = visibleCategories();
+  let mods = [];
+  for (const c of cats) {
+    for (const m of categoryMods(c.id)) {
+      if (m.name && m.name.toLowerCase().includes(q)) mods.push({ ...m, _cat: c.id });
     }
+  }
+  mods = applyFilters(mods);
+
+  viewRoot.innerHTML = `
+    <div class="view-header">
+      <h1 class="view-title">Поиск: <span class="accent">${esc(state.search.trim())}</span></h1>
+    </div>
+    ${toolbarHtml(mods.length, { tags: [], groups: [] })}
+    <div class="grid" id="modGrid">
+      ${mods.length ? mods.map((m, i) => cardHtml(m, i, true)).join('') : `<div class="empty-note">Ничего не найдено</div>`}
+    </div>
+  `;
+  bindToolbar();
+  bindCards(viewRoot, mods);
+}
+
+// --- single category ---
+
+function renderCategory(categoryId) {
+  const all = categoryMods(categoryId).map((m) => ({ ...m, _cat: categoryId }));
+  const tags = collectTags(all);
+  const groups = isGrouped(categoryId) ? collectGroups(all) : [];
+  const mods = applyFilters(all, categoryId);
+
+  const grouped = isGrouped(categoryId) && !state.filters.group && state.filters.sort === 'default';
+
+  let gridHtml = '';
+  if (!mods.length) {
+    gridHtml = '<div class="empty-note">Ничего не найдено — сбрось фильтры</div>';
+  } else if (grouped) {
+    let lastGroup = null;
+    mods.forEach((m, i) => {
+      if (m._group !== lastGroup) {
+        gridHtml += `<div class="group-title">${esc(m._group)}</div>`;
+        lastGroup = m._group;
+      }
+      gridHtml += cardHtml(m, i);
+    });
   } else {
-    mods = categoryMods(state.activeCategory).map((m) => ({ ...m, _cat: state.activeCategory }));
+    gridHtml = mods.map((m, i) => cardHtml(m, i)).join('');
   }
 
   viewRoot.innerHTML = `
     <div class="view-header">
-      <h1 class="view-title">Каталог</h1>
-      <span style="color:var(--text-muted);font-size:12.5px">${state.catalog.fetchedAt ? 'обновлён ' + new Date(state.catalog.fetchedAt).toLocaleString('ru') : ''}</span>
-      <div class="spacer"></div>
-      <div class="search-wrap">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input class="input" id="searchInput" placeholder="Поиск по всем модам…" value="${esc(state.search)}">
-      </div>
-      <button class="btn" id="refreshCatBtn" title="Скачать свежий каталог">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        Обновить
-      </button>
+      <h1 class="view-title">${esc(catName(categoryId))}</h1>
+      <span class="view-sub">${all.length} ${plural(all.length, 'мод', 'мода', 'модов')}</span>
     </div>
-    ${searching ? '' : `
-      <div class="chips">
-        ${cats.map((c) => `
-          <button class="chip ${c.id === state.activeCategory ? 'active' : ''}" data-cat="${esc(c.id)}">
-            ${esc(catName(c.id))}<span class="cnt">${categoryMods(c.id).length}</span>
-          </button>`).join('')}
-      </div>`}
-    <div class="grid" id="modGrid">
-      ${mods.length ? renderCards(mods, searching) : `<div class="empty-note">Ничего не найдено</div>`}
-    </div>
+    ${toolbarHtml(mods.length, { tags, groups, categoryId })}
+    <div class="grid" id="modGrid">${gridHtml}</div>
   `;
+  bindToolbar();
+  bindCards(viewRoot, mods);
+}
 
-  $('#searchInput').addEventListener('input', (e) => {
-    state.search = e.target.value;
+// --- toolbar ---
+
+function toolbarHtml(resultCount, { tags = [], groups = [], categoryId = null }) {
+  const f = state.filters;
+  return `
+    <div class="toolbar">
+      <div class="select-wrap">
+        <span class="ms">sort</span>
+        <select id="sortSelect">
+          ${SORTS.map((s) => `<option value="${s.key}" ${f.sort === s.key ? 'selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+      </div>
+      ${groups.length ? `
+        <div class="select-wrap">
+          <span class="ms">${catIcon(categoryId) || 'group'}</span>
+          <select id="groupSelect">
+            <option value="">Все группы</option>
+            ${groups.map((g) => `<option value="${esc(g)}" ${f.group === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+          </select>
+        </div>` : ''}
+      <div class="sep"></div>
+      <button class="fchip ${f.installedOnly ? 'active' : ''}" id="installedChip">
+        <span class="ms">check_circle</span>Установленные
+      </button>
+      ${tags.length ? '<div class="sep"></div>' : ''}
+      ${tags.map(([tag, cnt]) => `
+        <button class="fchip ${f.tags.has(tag) ? 'active' : ''}" data-tag="${esc(tag)}">
+          ${esc(tagLabel(categoryId, tag))}<span style="opacity:.55">${cnt}</span>
+        </button>`).join('')}
+      <span class="count">${resultCount} ${plural(resultCount, 'результат', 'результата', 'результатов')}</span>
+    </div>`;
+}
+
+function bindToolbar() {
+  $('#sortSelect')?.addEventListener('change', (e) => {
+    state.filters.sort = e.target.value;
     renderCatalog();
-    const inp = $('#searchInput');
-    inp.focus();
-    inp.setSelectionRange(inp.value.length, inp.value.length);
   });
-  $('#refreshCatBtn').addEventListener('click', () => loadCatalog(true));
-
-  document.querySelectorAll('.chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      state.activeCategory = chip.dataset.cat;
+  $('#groupSelect')?.addEventListener('change', (e) => {
+    state.filters.group = e.target.value;
+    renderCatalog();
+  });
+  $('#installedChip')?.addEventListener('click', () => {
+    state.filters.installedOnly = !state.filters.installedOnly;
+    renderCatalog();
+  });
+  document.querySelectorAll('.fchip[data-tag]').forEach((c) => {
+    c.addEventListener('click', () => {
+      const t = c.dataset.tag;
+      if (state.filters.tags.has(t)) state.filters.tags.delete(t);
+      else state.filters.tags.add(t);
       renderCatalog();
     });
   });
-
-  document.querySelectorAll('.card[data-idx]').forEach((card) => {
-    card.addEventListener('click', () => {
-      const m = mods[Number(card.dataset.idx)];
-      openModModal(m._cat, m);
-    });
-  });
-
-  // play video previews on hover
-  viewRoot.querySelectorAll('video[data-hoverplay]').forEach((v) => {
-    const card = v.closest('.card');
-    card.addEventListener('mouseenter', () => { v.play().catch(() => {}); });
-    card.addEventListener('mouseleave', () => { v.pause(); });
-  });
 }
 
-function renderCards(mods, searching) {
-  let html = '';
-  let lastGroup = null;
-  mods.forEach((m, i) => {
-    if (!searching && m._group && m._group !== lastGroup) {
-      html += `<div class="group-title">${esc(m._group)}</div>`;
-      lastGroup = m._group;
-    }
-    const cat = m._cat;
-    const prev = previewUrl(cat, m.preview || (m.styles?.[0]?.preview));
-    const installed = state.installedIndex.has(keyOf(cat, m.name, null)) ||
-      (m.styles || []).some((s) => state.installedIndex.has(keyOf(cat, m.name, s.label)));
-    const isPack = m.type === 'pack';
-    const external = !installTarget(m) && !m.styles && !isPack;
-    html += `
-      <div class="card" data-idx="${i}">
-        <div class="card-media">${mediaHtml(prev, { hoverPlay: true })}</div>
-        <div class="card-body">
-          <div class="card-name">${esc(m.name)}</div>
-          <div class="card-tags">
-            ${searching ? `<span class="tag">${esc(catName(cat))}</span>` : ''}
-            ${installed ? '<span class="tag installed">Установлен</span>' : ''}
-            ${m.styles ? `<span class="tag styles">${m.styles.length} ${plural(m.styles.length, 'стиль', 'стиля', 'стилей')}</span>` : ''}
-            ${isPack ? `<span class="tag styles">Пак · ${(m.mods || []).length}</span>` : ''}
-            ${external ? '<span class="tag">Ссылка</span>' : ''}
-            ${Object.entries(m.tags || {}).filter(([, v]) => v).map(([k]) => `<span class="tag">${esc(k)}</span>`).join('')}
-          </div>
+// --- cards ---
+
+function cardHtml(m, i, withCat = false) {
+  const cat = m._cat;
+  const prev = previewUrl(cat, m.preview || (m.styles?.[0]?.preview));
+  const installed = isInstalled(cat, m);
+  const isPack = m.type === 'pack';
+  const external = !installTarget(m) && !m.styles && !isPack;
+  const tags = Object.entries(m.tags || {}).filter(([, v]) => v).map(([k]) => k).slice(0, 3);
+  const author = m.author || m.sender;
+  return `
+    <div class="card" data-key="${esc(keyOf(cat, m.name, null))}" style="--i:${Math.min(i, 28)}">
+      <div class="card-media">
+        ${mediaHtml(prev, { hoverPlay: true })}
+        <div class="media-tags">
+          ${installed ? '<span class="mtag ok">Установлен</span>' : ''}
+          ${isPack ? `<span class="mtag">Пак · ${(m.mods || []).length}</span>` : ''}
+          ${external ? '<span class="mtag">Ссылка</span>' : ''}
+          ${tags.map((t) => `<span class="mtag">${esc(tagLabel(cat, t))}</span>`).join('')}
         </div>
-      </div>`;
+        ${m.styles ? `
+          <div class="media-swatches">
+            ${m.styles.slice(0, 5).map((s) => `<span class="swatch-dot" style="background:${esc(s.color || '#a78bfa')}"></span>`).join('')}
+          </div>` : ''}
+      </div>
+      <div class="card-body">
+        <div class="card-name">${esc(m.name)}</div>
+        <div class="card-meta">
+          ${withCat ? `<span>${esc(catName(cat))}</span>` : ''}
+          ${m.meta?.date ? `<span>${fmtDate(m.meta.date)}</span>` : ''}
+          ${author ? `<span class="author-chip"><span class="ms">person</span>${esc(author)}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+function bindCards(root, modsList) {
+  root.querySelectorAll('.card[data-key]').forEach((card) => {
+    card.addEventListener('click', () => {
+      const key = card.dataset.key;
+      // find the mod by key among provided list or global index
+      let target = null;
+      if (modsList) {
+        target = modsList.find((m) => keyOf(m._cat, m.name, null) === key);
+      }
+      if (!target) {
+        const [cat, name] = key.split('|');
+        const hit = state.modIndex.get(name.toLowerCase());
+        if (hit) target = { ...hit.mod, _cat: hit.categoryId };
+      }
+      if (target) openModModal(target._cat, target);
+    });
+    const v = card.querySelector('video[data-hoverplay]');
+    if (v) {
+      card.addEventListener('mouseenter', () => { v.play().catch(() => {}); });
+      card.addEventListener('mouseleave', () => { v.pause(); });
+    }
   });
-  return html;
 }
 
 // ---------- mod modal ----------
@@ -322,17 +611,23 @@ function drawModal() {
   const installedRec = state.installedIndex.get(keyOf(categoryId, mod.name, styleLabel));
   const busy = state.installing.has(keyOf(categoryId, mod.name, styleLabel));
   const guide = mod.guideId && state.catalog?.guides?.[mod.guideId];
+  const author = mod.author || mod.sender;
 
   $('#modalContent').innerHTML = `
-    <div class="modal-media">${mediaHtml(prev, { autoplay: true })}</div>
+    <div class="modal-media">
+      ${mediaHtml(prev, { autoplay: true })}
+      <button class="modal-close" id="modalCloseBtn" aria-label="Закрыть"><span class="ms">close</span></button>
+    </div>
     <div class="modal-body">
       <div class="modal-title-row">
         <div class="modal-title">${esc(mod.name)}</div>
-        <button class="modal-close" id="modalCloseBtn" aria-label="Закрыть">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
       </div>
-      <div style="color:var(--text-muted);font-size:12.5px">${esc(catName(categoryId))}${mod._group ? ' · ' + esc(mod._group) : ''}</div>
+      <div class="modal-sub">
+        <span>${esc(catName(categoryId))}</span>
+        ${mod._group ? `<span>· ${esc(mod._group)}</span>` : ''}
+        ${mod.meta?.date ? `<span>· ${fmtDate(mod.meta.date)}</span>` : ''}
+        ${author ? `<span class="author-chip"><span class="ms">person</span>${esc(author)}</span>` : ''}
+      </div>
       ${styles ? `
         <div class="style-row">
           ${styles.map((s, i) => `
@@ -341,11 +636,11 @@ function drawModal() {
             </button>`).join('')}
         </div>` : ''}
       <div class="modal-actions">
-        ${isPack ? `<button class="btn btn-primary" id="installPackBtn">Установить пак (${(mod.mods || []).length})</button>` : ''}
+        ${isPack ? `<button class="btn btn-primary" id="installPackBtn"><span class="ms">download</span>Установить пак (${(mod.mods || []).length})</button>` : ''}
         ${!isPack && target ? (installedRec
-          ? `<button class="btn btn-danger" id="uninstallBtn">Удалить</button>`
-          : `<button class="btn btn-primary" id="installBtn" ${busy ? 'disabled' : ''}>${busy ? 'Установка…' : 'Установить'}</button>`) : ''}
-        ${!isPack && !target && mod.file ? `<button class="btn" id="openLinkBtn">Открыть ссылку</button>` : ''}
+          ? `<button class="btn btn-danger" id="uninstallBtn"><span class="ms">delete</span>Удалить</button>`
+          : `<button class="btn btn-primary" id="installBtn" ${busy ? 'disabled' : ''}><span class="ms">download</span>${busy ? 'Установка…' : 'Установить'}</button>`) : ''}
+        ${!isPack && !target && mod.file ? `<button class="btn" id="openLinkBtn"><span class="ms">open_in_new</span>Открыть ссылку</button>` : ''}
       </div>
       ${(mod.links || []).length || guide ? `
         <div class="modal-links">
@@ -381,13 +676,9 @@ function drawModal() {
     });
   }
   const packBtn = $('#installPackBtn');
-  if (packBtn) {
-    packBtn.addEventListener('click', () => installPack(mod));
-  }
+  if (packBtn) packBtn.addEventListener('click', () => installPack(mod));
   const openLinkBtn = $('#openLinkBtn');
-  if (openLinkBtn) {
-    openLinkBtn.addEventListener('click', () => window.api.misc.openExternal(mod.file));
-  }
+  if (openLinkBtn) openLinkBtn.addEventListener('click', () => window.api.misc.openExternal(mod.file));
   const guideLink = $('#modalGuideLink');
   if (guideLink) {
     guideLink.addEventListener('click', () => {
@@ -396,7 +687,7 @@ function drawModal() {
       setTimeout(() => {
         const el = document.querySelector(`[data-guide="${mod.guideId}"]`);
         if (el) { el.classList.add('open'); el.scrollIntoView({ behavior: 'smooth' }); }
-      }, 60);
+      }, 80);
     });
   }
   (mod.links || []).forEach((l, i) => {
@@ -408,7 +699,7 @@ function drawModal() {
 async function doInstall(categoryId, mod, styleLabel, fileRef, preview) {
   const k = keyOf(categoryId, mod.name, styleLabel);
   if (state.installing.has(k)) return;
-  if (!state.settings?.dotaPathValid && !['tools'].includes(categoryId)) {
+  if (!state.settings?.dotaPathValid && categoryId !== 'tools') {
     toast('Сначала укажи путь к Dota 2 в настройках', 'warn');
     return;
   }
@@ -454,30 +745,31 @@ async function renderLibrary() {
       <h1 class="view-title">Библиотека</h1>
     </div>
     <div class="lib-toolbar">
-      <span class="lib-stats">${installed.length} модов · ${enabledCount} включено</span>
+      <span class="lib-stats">${installed.length} ${plural(installed.length, 'мод', 'мода', 'модов')} · ${enabledCount} включено</span>
       <button class="btn btn-sm" id="enableAllBtn">Включить всё</button>
       <button class="btn btn-sm" id="disableAllBtn">Отключить всё</button>
-      <button class="btn btn-sm" id="openFolderBtn2">Папка модов</button>
+      <button class="btn btn-sm" id="openFolderBtn2"><span class="ms">folder_open</span>Папка модов</button>
     </div>
     <div class="lib-list" id="libList">
       ${installed.length ? '' : '<div class="empty-note">Пока ничего не установлено — загляни в Каталог</div>'}
     </div>
     ${external.length ? `
-      <div class="section-h">Внешние файлы в папке модов</div>
+      <div class="section-h" style="margin-top:26px"><span class="ms">folder_zip</span>Внешние файлы в папке модов</div>
       <div style="color:var(--text-muted);font-size:12.5px;margin-bottom:10px">Файлы, установленные не через менеджер</div>
       <div class="lib-list" id="extList"></div>` : ''}
   `;
 
   const libList = $('#libList');
-  for (const rec of installed) {
+  installed.forEach((rec, i) => {
     const row = document.createElement('div');
     row.className = `lib-row ${rec.enabled ? '' : 'disabled'}`;
+    row.style.setProperty('--i', Math.min(i, 20));
     const prev = previewUrl(rec.categoryId, rec.preview);
     const fileNames = rec.files.filter((f) => f.root === 'lang').map((f) => f.relPath);
     row.innerHTML = `
       ${prev && !isVideo(prev) ? `<img class="lib-thumb" src="${esc(prev)}" loading="lazy" alt="">` : `<div class="lib-thumb"></div>`}
       <div class="lib-info">
-        <div class="lib-name">${esc(rec.name)}${rec.styleLabel ? ` <span style="color:var(--gold);font-size:12px">(${esc(rec.styleLabel)})</span>` : ''}</div>
+        <div class="lib-name">${esc(rec.name)}${rec.styleLabel ? ` <span style="color:var(--primary-soft);font-size:12px">(${esc(rec.styleLabel)})</span>` : ''}</div>
         <div class="lib-meta">
           <span>${esc(catName(rec.categoryId))}</span>
           ${fileNames.length ? `<span>${esc(fileNames.slice(0, 3).join(', '))}${fileNames.length > 3 ? '…' : ''}</span>` : ''}
@@ -492,7 +784,7 @@ async function renderLibrary() {
       </div>
     `;
     libList.appendChild(row);
-  }
+  });
 
   libList.querySelectorAll('.toggle').forEach((t) => {
     t.addEventListener('click', async () => {
@@ -577,7 +869,7 @@ async function renderPresets() {
     </div>
     <div class="preset-new">
       <input class="input" id="presetName" placeholder="Название пресета (напр. «Анимешный», «Минимал»)">
-      <button class="btn btn-primary" id="savePresetBtn">Сохранить текущее состояние</button>
+      <button class="btn btn-primary" id="savePresetBtn"><span class="ms">save</span>Сохранить текущее состояние</button>
     </div>
     <div id="presetList">
       ${presets.length ? '' : '<div class="empty-note">Пресетов пока нет</div>'}
@@ -585,21 +877,22 @@ async function renderPresets() {
   `;
 
   const list = $('#presetList');
-  for (const p of presets) {
+  presets.forEach((p, i) => {
     const names = p.modIds.map((id) => byId.get(id)?.name).filter(Boolean);
     const card = document.createElement('div');
     card.className = 'preset-card';
+    card.style.setProperty('--i', i);
     card.innerHTML = `
       <div class="preset-head">
         <div class="preset-name">${esc(p.name)}</div>
-        <span style="font-size:12px;color:var(--text-muted)">${names.length} модов</span>
+        <span style="font-size:12px;color:var(--text-muted)">${names.length} ${plural(names.length, 'мод', 'мода', 'модов')}</span>
         <button class="btn btn-sm btn-primary" data-apply="${p.id}">Применить</button>
         <button class="btn btn-sm btn-danger" data-pdel="${p.id}">Удалить</button>
       </div>
       <div class="preset-mods">${names.length ? esc(names.join(' · ')) : 'пусто (всё будет выключено)'}</div>
     `;
     list.appendChild(card);
-  }
+  });
 
   $('#savePresetBtn').addEventListener('click', async () => {
     const name = $('#presetName').value.trim();
@@ -639,15 +932,15 @@ async function renderTools() {
         const dl = t.file && /\.(zip|exe)$/i.test(t.file);
         const rec = toolRecs.get(t.name);
         return `
-        <div class="tool-card">
+        <div class="tool-card" style="--i:${i}">
           <div class="tool-name">${esc(t.name)}</div>
           <div class="tool-actions">
             ${dl ? (rec
-              ? `<button class="btn btn-sm btn-primary" data-run="${esc(rec.files[0]?.relPath || '')}">Запустить</button>
+              ? `<button class="btn btn-sm btn-primary" data-run="${esc(rec.files[0]?.relPath || '')}"><span class="ms">play_arrow</span>Запустить</button>
                  <button class="btn btn-sm" data-open="${esc(rec.files[0]?.relPath || '')}">Папка</button>
                  <button class="btn btn-sm btn-danger" data-tdel="${rec.id}">Удалить</button>`
-              : `<button class="btn btn-sm btn-primary" data-get="${i}">Скачать</button>`)
-              : (t.file ? `<button class="btn btn-sm" data-url="${esc(t.file)}">Открыть сайт</button>` : '')}
+              : `<button class="btn btn-sm btn-primary" data-get="${i}"><span class="ms">download</span>Скачать</button>`)
+              : (t.file ? `<button class="btn btn-sm" data-url="${esc(t.file)}"><span class="ms">open_in_new</span>Открыть сайт</button>` : '')}
             ${t.guideId && state.catalog?.guides?.[t.guideId] ? `<button class="btn btn-sm btn-ghost" data-guide="${esc(t.guideId)}">Гайд</button>` : ''}
           </div>
         </div>`;
@@ -690,7 +983,7 @@ async function renderTools() {
       setTimeout(() => {
         const el = document.querySelector(`[data-guide="${b.dataset.guide}"]`);
         if (el) { el.classList.add('open'); el.scrollIntoView({ behavior: 'smooth' }); }
-      }, 60);
+      }, 80);
     });
   });
 }
@@ -722,7 +1015,7 @@ function renderGuides() {
       return `
       <div class="guide-card" data-guide="${esc(id)}">
         <div class="guide-title">
-          <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          <span class="ms chev">chevron_right</span>
           ${esc(g.title)}
         </div>
         <div class="guide-body">
@@ -740,7 +1033,6 @@ function renderGuides() {
   viewRoot.querySelectorAll('.guide-title').forEach((t) => {
     t.addEventListener('click', () => t.closest('.guide-card').classList.toggle('open'));
   });
-  // external links inside guide HTML
   viewRoot.querySelectorAll('.guide-body a[href]').forEach((a) => {
     a.addEventListener('click', (e) => {
       e.preventDefault();
@@ -771,13 +1063,16 @@ async function renderSettings() {
       </div>
     </div>
 
-    <div class="settings-block">
+    <div class="settings-block" style="animation-delay:60ms">
       <h3>Папка модов и параметры запуска</h3>
       <div class="settings-row">
         <span class="settings-label">Языковая папка</span>
-        <select class="input" id="langSelect">
-          ${['123', 'minify', 'russian', 'test'].map((v) => `<option value="${v}" ${s.langSuffix === v ? 'selected' : ''}>dota_${v}</option>`).join('')}
-        </select>
+        <div class="select-wrap">
+          <span class="ms">folder</span>
+          <select class="input" id="langSelect" style="padding-left:30px">
+            ${['123', 'minify', 'russian', 'test'].map((v) => `<option value="${v}" ${s.langSuffix === v ? 'selected' : ''}>dota_${v}</option>`).join('')}
+          </select>
+        </div>
       </div>
       <div class="settings-row">
         <span class="settings-label">Параметр запуска Steam</span>
@@ -791,7 +1086,7 @@ async function renderSettings() {
       </div>
     </div>
 
-    <div class="settings-block">
+    <div class="settings-block" style="animation-delay:120ms">
       <h3>Кэш загрузок</h3>
       <div class="settings-row">
         <span class="settings-label">Размер</span>
@@ -803,7 +1098,7 @@ async function renderSettings() {
       </div>
     </div>
 
-    <div class="settings-block">
+    <div class="settings-block" style="animation-delay:180ms">
       <h3>Каталог</h3>
       <div class="settings-row">
         <span class="settings-label">Обновлён</span>
@@ -812,7 +1107,7 @@ async function renderSettings() {
       </div>
       <div class="settings-row">
         <span class="settings-label">Источник</span>
-        <a style="color:var(--gold);cursor:pointer;font-size:12.5px" id="srcLink">github.com/h6rd/Dota2PornFxWeb</a>
+        <a style="color:var(--primary-soft);cursor:pointer;font-size:12.5px" id="srcLink">github.com/h6rd/Dota2PornFxWeb</a>
       </div>
     </div>
   `;
@@ -835,6 +1130,7 @@ async function renderSettings() {
     await window.api.settings.set('langSuffix', e.target.value);
     toast(`Папка модов: dota_${e.target.value}. Не забудь сменить параметр запуска!`, 'warn', 6000);
     renderSettings();
+    refreshSidebarStatus();
   });
   $('#copyLaunchBtn').addEventListener('click', () => {
     navigator.clipboard.writeText(`-language ${s.langSuffix}`);
@@ -852,15 +1148,7 @@ async function renderSettings() {
   $('#srcLink').addEventListener('click', () => window.api.misc.openExternal('https://github.com/h6rd/Dota2PornFxWeb'));
 }
 
-// ---------- helpers ----------
-
-function switchView(view) {
-  document.querySelectorAll('.nav-item').forEach((b) => {
-    b.classList.toggle('active', b.dataset.view === view);
-  });
-  state.view = view;
-  render();
-}
+// ---------- status bar ----------
 
 async function refreshSidebarStatus() {
   const s = await window.api.settings.get();
@@ -869,10 +1157,10 @@ async function refreshSidebarStatus() {
   const txtEl = $('#dotaStatusText');
   if (s.dotaPathValid) {
     dotEl.className = 'dot ok';
-    txtEl.textContent = `Dota 2 · dota_${s.langSuffix}`;
+    txtEl.textContent = `Dota 2 подключена · dota_${s.langSuffix} · параметр: -language ${s.langSuffix}`;
   } else {
     dotEl.className = 'dot bad';
-    txtEl.textContent = 'Dota 2 не найдена';
+    txtEl.textContent = 'Dota 2 не найдена — укажи путь в настройках';
   }
 }
 
@@ -915,6 +1203,8 @@ async function loadCatalog(force = false) {
 }
 
 (async function boot() {
+  const maxed = await window.api.win.isMaximized();
+  if (maxed) $('#winMax').innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12"><rect x="2" y="3.5" width="6.5" height="6.5" fill="none" stroke="currentColor" stroke-width="1.1" rx="1"/><path d="M4 3.5V2.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>';
   await refreshSidebarStatus();
   await refreshInstalledIndex();
   await loadCatalog();
