@@ -1,0 +1,17 @@
+{
+  "name": "dota2-mod-manager",
+  "version": "0.1.0",
+  "description": "Dota 2 mod launcher/manager powered by the Dota2PornFx catalog",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "Mykhailo Lynnyk",
+  "license": "GPL-3.0",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  }
+}
