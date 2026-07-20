@@ -55,6 +55,17 @@ function createWindow() {
               `document.querySelector('.rail-item[data-cat="${process.env.MM_CAT}"]')?.click()`);
             await new Promise((r) => setTimeout(r, 2500));
           }
+          if (process.env.MM_MODAL) {
+            await win.webContents.executeJavaScript(`
+              [...document.querySelectorAll('.card .card-name')]
+                .find(n => n.textContent.trim() === ${JSON.stringify(process.env.MM_MODAL)})
+                ?.closest('.card')?.click()`);
+            await new Promise((r) => setTimeout(r, 1500));
+            if (process.env.MM_PREVIEW) {
+              await win.webContents.executeJavaScript(`document.getElementById('previewToggleBtn')?.click()`);
+              await new Promise((r) => setTimeout(r, 2500));
+            }
+          }
           await new Promise((r) => setTimeout(r, 500));
           const img = await win.webContents.capturePage();
           fs.writeFileSync(process.env.MM_SHOT, img.toPNG());
@@ -116,6 +127,30 @@ function registerIpc() {
   }));
 
   ipcMain.handle('settings:set', (e, key, value) => {
+    // when the language folder changes, move installed mod files over
+    if (key === 'langSuffix' && value !== settings.get('langSuffix')) {
+      const game = settings.get('dotaGamePath');
+      if (game) {
+        const oldDir = path.join(game, `dota_${settings.get('langSuffix')}`);
+        const newDir = path.join(game, `dota_${value}`);
+        try {
+          if (fs.existsSync(oldDir)) {
+            fs.mkdirSync(newDir, { recursive: true });
+            for (const f of fs.readdirSync(oldDir)) {
+              // never move the game's own localization files (official lang folders)
+              if (/^pak01_/i.test(f) || f.toLowerCase() === 'gameinfo.gi') continue;
+              const src = path.join(oldDir, f);
+              const dst = path.join(newDir, f);
+              if (!fs.existsSync(dst)) fs.renameSync(src, dst);
+            }
+            // remove old folder if now empty
+            if (!fs.readdirSync(oldDir).length) fs.rmdirSync(oldDir);
+          }
+        } catch (err) {
+          console.error('lang folder migration failed:', err);
+        }
+      }
+    }
     settings.set(key, value);
     return settings.all();
   });

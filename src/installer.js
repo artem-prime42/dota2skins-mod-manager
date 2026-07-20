@@ -306,7 +306,9 @@ class Installer {
     }
   }
 
-  // files present in lang folder but not referenced by the manifest
+  // files present in lang folder but not referenced by the manifest.
+  // The game's own localization files (pak01_*, gameinfo.gi) live in official
+  // language folders like dota_russian — never list them as manageable mods.
   externalFiles(knownRelPaths) {
     const lang = this.langFolder();
     if (!fs.existsSync(lang)) return [];
@@ -316,6 +318,7 @@ class Installer {
       const full = path.join(lang, f);
       if (!fs.statSync(full).isFile()) continue;
       const base = f.toLowerCase().replace(/\.off$/, '');
+      if (/^pak01_/.test(base) || base === 'gameinfo.gi') continue;
       if (!known.has(base)) {
         out.push({ name: f, size: fs.statSync(full).size, enabled: !f.toLowerCase().endsWith('.off') });
       }

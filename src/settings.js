@@ -4,7 +4,9 @@ const path = require('path');
 
 const DEFAULTS = {
   dotaGamePath: null,
-  langSuffix: '123',
+  // "russian" keeps the game in Russian while loading mods (dota_russian + -language russian);
+  // "123" switches the game UI to English
+  langSuffix: 'russian',
 };
 
 class Settings {

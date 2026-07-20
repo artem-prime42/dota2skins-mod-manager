@@ -56,7 +56,7 @@ const state = {
   settings: null,
   activeCategory: 'all',
   search: '',
-  filters: { sort: 'default', tags: new Set(), installedOnly: false, group: '' },
+  filters: { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '' },
   installedIndex: new Map(),
   installing: new Set(),
   modIndex: new Map(),
@@ -99,15 +99,56 @@ function previewUrl(categoryId, preview) {
 }
 
 function isVideo(src) { return /\.(mp4|webm)$/i.test(src || ''); }
+function isAudio(src) { return /\.(mp3|wav|ogg)$/i.test(src || ''); }
+function isMedia(src) { return isVideo(src) || isAudio(src); }
 
-function mediaHtml(url, { hoverPlay = false, autoplay = false } = {}) {
+// resolve a repo-relative or absolute link to a full URL
+function resolveUrl(url) {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${RAW_BASE}/${url.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function mediaHtml(url, { hoverPlay = false, autoplay = false, controls = false } = {}) {
   if (!url) {
     return `<div class="noimg"><span class="ms" style="font-size:36px">image</span></div>`;
   }
   if (isVideo(url)) {
-    return `<video src="${esc(url)}" muted loop playsinline preload="${autoplay ? 'auto' : 'none'}" ${autoplay ? 'autoplay' : ''} ${hoverPlay ? 'data-hoverplay="1"' : ''}></video>`;
+    return `<video src="${esc(url)}" ${controls ? 'controls' : 'muted'} loop playsinline preload="${autoplay ? 'auto' : 'none'}" ${autoplay ? 'autoplay' : ''} ${hoverPlay ? 'data-hoverplay="1"' : ''}></video>`;
+  }
+  if (isAudio(url)) {
+    return `<div class="audio-wrap"><span class="ms audio-icon">graphic_eq</span><audio src="${esc(url)}" controls preload="none"></audio></div>`;
   }
   return `<img src="${esc(url)}" loading="lazy" alt="">`;
+}
+
+// ---------- custom confirm dialog ----------
+
+function confirmDialog(message, { okLabel = 'Удалить', danger = true } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.innerHTML = `
+      <div class="confirm-box">
+        <div class="confirm-msg">${esc(message)}</div>
+        <div class="confirm-actions">
+          <button class="btn" data-c="no">Отмена</button>
+          <button class="btn ${danger ? 'btn-danger-solid' : 'btn-primary'}" data-c="yes">${esc(okLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const done = (v) => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) done(false); });
+    overlay.querySelector('[data-c="no"]').addEventListener('click', () => done(false));
+    overlay.querySelector('[data-c="yes"]').addEventListener('click', () => done(true));
+    const onKey = (e) => { if (e.key === 'Escape') done(false); };
+    document.addEventListener('keydown', onKey);
+    overlay.querySelector('[data-c="yes"]').focus();
+  });
+}
+
+function authorUrl(name) {
+  return state.catalog?.constants?.MOD_AUTHOR?.[name] || state.catalog?.constants?.MOD_SENDER?.[name] || null;
 }
 
 function keyOf(categoryId, name, styleLabel) {
@@ -206,10 +247,16 @@ function collectGroups(mods) {
   return out;
 }
 
+function heroMatches(hero, name) {
+  const re = new RegExp(`\\b${hero.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  return re.test(name);
+}
+
 function applyFilters(mods, catForInstalled) {
   const f = state.filters;
   let out = mods;
   if (f.group) out = out.filter((m) => m._group === f.group);
+  if (f.hero) out = out.filter((m) => heroMatches(f.hero, m.name));
   if (f.tags.size) {
     out = out.filter((m) => [...f.tags].every((t) => m.tags?.[t]));
   }
@@ -310,7 +357,7 @@ function renderRail() {
   rail.querySelectorAll('.rail-item').forEach((b) => {
     b.addEventListener('click', () => {
       state.activeCategory = b.dataset.cat;
-      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '' };
+      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '' };
       if (state.search) {
         state.search = '';
         $('#globalSearch').value = '';
@@ -388,7 +435,7 @@ function renderHome() {
   viewRoot.querySelectorAll('.cat-tile').forEach((t) => {
     t.addEventListener('click', () => {
       state.activeCategory = t.dataset.cat;
-      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '' };
+      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '' };
       renderCatalog();
       $('#main').scrollTop = 0;
     });
@@ -428,6 +475,9 @@ function renderCategory(categoryId) {
   const all = categoryMods(categoryId).map((m) => ({ ...m, _cat: categoryId }));
   const tags = collectTags(all);
   const groups = isGrouped(categoryId) ? collectGroups(all) : [];
+  const heroes = categoryId === 'heroes'
+    ? (state.catalog?.constants?.HEROES_LIST || []).filter((h) => all.some((m) => heroMatches(h, m.name)))
+    : [];
   const mods = applyFilters(all, categoryId);
 
   const grouped = isGrouped(categoryId) && !state.filters.group && state.filters.sort === 'default';
@@ -453,7 +503,7 @@ function renderCategory(categoryId) {
       <h1 class="view-title">${esc(catName(categoryId))}</h1>
       <span class="view-sub">${all.length} ${plural(all.length, 'мод', 'мода', 'модов')}</span>
     </div>
-    ${toolbarHtml(mods.length, { tags, groups, categoryId })}
+    ${toolbarHtml(mods.length, { tags, groups, heroes, categoryId })}
     <div class="grid" id="modGrid">${gridHtml}</div>
   `;
   bindToolbar();
@@ -462,7 +512,9 @@ function renderCategory(categoryId) {
 
 // --- toolbar ---
 
-function toolbarHtml(resultCount, { tags = [], groups = [], categoryId = null }) {
+const GROUP_LABEL = { 'hero-items': 'Все герои', 'item-effects': 'Все предметы', creeps: 'Все крипы', towers: 'Все башни', 'creep-deny': 'Все типы' };
+
+function toolbarHtml(resultCount, { tags = [], groups = [], heroes = [], categoryId = null }) {
   const f = state.filters;
   return `
     <div class="toolbar">
@@ -472,11 +524,19 @@ function toolbarHtml(resultCount, { tags = [], groups = [], categoryId = null })
           ${SORTS.map((s) => `<option value="${s.key}" ${f.sort === s.key ? 'selected' : ''}>${s.label}</option>`).join('')}
         </select>
       </div>
+      ${heroes.length ? `
+        <div class="select-wrap">
+          <span class="ms">person</span>
+          <select id="heroSelect">
+            <option value="">Все герои</option>
+            ${heroes.map((h) => `<option value="${esc(h)}" ${f.hero === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}
+          </select>
+        </div>` : ''}
       ${groups.length ? `
         <div class="select-wrap">
-          <span class="ms">${catIcon(categoryId) || 'group'}</span>
+          <span class="ms">${categoryId === 'hero-items' ? 'person' : catIcon(categoryId) || 'group'}</span>
           <select id="groupSelect">
-            <option value="">Все группы</option>
+            <option value="">${GROUP_LABEL[categoryId] || 'Все группы'}</option>
             ${groups.map((g) => `<option value="${esc(g)}" ${f.group === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
           </select>
         </div>` : ''}
@@ -500,6 +560,10 @@ function bindToolbar() {
   });
   $('#groupSelect')?.addEventListener('change', (e) => {
     state.filters.group = e.target.value;
+    renderCatalog();
+  });
+  $('#heroSelect')?.addEventListener('change', (e) => {
+    state.filters.hero = e.target.value;
     renderCatalog();
   });
   $('#installedChip')?.addEventListener('click', () => {
@@ -599,11 +663,12 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeModal();
 });
 
+const LINK_LABEL = { preview: 'Превью', source: 'Источник', author: 'Автор', bug: 'Баг', guide: 'Гайд' };
+
 function drawModal() {
-  const { categoryId, mod, styleIdx } = modalState;
+  const { categoryId, mod, styleIdx, showPreview } = modalState;
   const styles = mod.styles || null;
   const cur = styles ? styles[styleIdx] : mod;
-  const prev = previewUrl(categoryId, cur.preview || mod.preview);
   const fileRef = styles ? cur.file : mod.file;
   const target = fileRef && /\.(vpk|zip)$/i.test(fileRef) ? fileRef : null;
   const isPack = mod.type === 'pack';
@@ -611,12 +676,31 @@ function drawModal() {
   const installedRec = state.installedIndex.get(keyOf(categoryId, mod.name, styleLabel));
   const busy = state.installing.has(keyOf(categoryId, mod.name, styleLabel));
   const guide = mod.guideId && state.catalog?.guides?.[mod.guideId];
-  const author = mod.author || mod.sender;
+
+  // media: static preview, or the video/audio preview link when toggled
+  const links = mod.links || [];
+  const previewLink = links.find((l) => l.type === 'preview' && isMedia(l.url));
+  const mediaUrl = showPreview && previewLink
+    ? resolveUrl(previewLink.url)
+    : previewUrl(categoryId, cur.preview || mod.preview);
+
+  // author: mod.author/sender field, or an "author"-type link whose url is a name or URL
+  const authorLink = links.find((l) => l.type === 'author');
+  const authorName = mod.author || mod.sender ||
+    (authorLink && !/^https?:\/\//i.test(authorLink.url) ? authorLink.url : null);
+  const authorHref = (authorLink && /^https?:\/\//i.test(authorLink.url) ? authorLink.url : null) ||
+    (authorName ? authorUrl(authorName) : null);
+
+  const otherLinks = links.filter((l) => l !== previewLink && l.type !== 'author');
 
   $('#modalContent').innerHTML = `
-    <div class="modal-media">
-      ${mediaHtml(prev, { autoplay: true })}
+    <div class="modal-media ${showPreview && previewLink && isAudio(previewLink.url) ? 'audio-mode' : ''}">
+      ${mediaHtml(mediaUrl, showPreview ? { autoplay: true, controls: true } : { autoplay: true })}
       <button class="modal-close" id="modalCloseBtn" aria-label="Закрыть"><span class="ms">close</span></button>
+      ${previewLink ? `
+        <button class="preview-toggle" id="previewToggleBtn">
+          <span class="ms">${showPreview ? 'image' : 'play_circle'}</span>${showPreview ? 'Картинка' : 'Смотреть превью'}
+        </button>` : ''}
     </div>
     <div class="modal-body">
       <div class="modal-title-row">
@@ -626,7 +710,10 @@ function drawModal() {
         <span>${esc(catName(categoryId))}</span>
         ${mod._group ? `<span>· ${esc(mod._group)}</span>` : ''}
         ${mod.meta?.date ? `<span>· ${fmtDate(mod.meta.date)}</span>` : ''}
-        ${author ? `<span class="author-chip"><span class="ms">person</span>${esc(author)}</span>` : ''}
+        ${authorName ? `
+          <button class="author-chip ${authorHref ? 'clickable' : ''}" id="authorChip" ${authorHref ? '' : 'disabled'}>
+            <span class="ms">person</span>${esc(authorName)}${authorHref ? '<span class="ms" style="font-size:11px">open_in_new</span>' : ''}
+          </button>` : ''}
       </div>
       ${styles ? `
         <div class="style-row">
@@ -642,10 +729,10 @@ function drawModal() {
           : `<button class="btn btn-primary" id="installBtn" ${busy ? 'disabled' : ''}><span class="ms">download</span>${busy ? 'Установка…' : 'Установить'}</button>`) : ''}
         ${!isPack && !target && mod.file ? `<button class="btn" id="openLinkBtn"><span class="ms">open_in_new</span>Открыть ссылку</button>` : ''}
       </div>
-      ${(mod.links || []).length || guide ? `
+      ${otherLinks.length || guide ? `
         <div class="modal-links">
           ${guide ? `<a id="modalGuideLink">Гайд: ${esc(guide.title)}</a>` : ''}
-          ${(mod.links || []).map((l, i) => `<a data-link="${i}">${esc(l.type || 'ссылка')}</a>`).join('')}
+          ${otherLinks.map((l) => `<a data-link="${links.indexOf(l)}">${esc(LINK_LABEL[l.type] || l.type || 'ссылка')}</a>`).join('')}
         </div>` : ''}
       ${categoryId === 'fonts' ? `<div class="modal-note">Шрифт ставится в файлы игры (game\\dota\\panorama\\fonts) — параметр запуска не нужен. Оригиналы сохраняются автоматически.</div>` : ''}
       ${categoryId === 'cursors' ? `<div class="modal-note">Курсор ставится в game\\dota\\resource\\cursor — параметр запуска не нужен. Оригиналы сохраняются автоматически.</div>` : ''}
@@ -654,9 +741,23 @@ function drawModal() {
 
   $('#modalCloseBtn').addEventListener('click', closeModal);
 
+  const previewToggle = $('#previewToggleBtn');
+  if (previewToggle) {
+    previewToggle.addEventListener('click', () => {
+      modalState.showPreview = !modalState.showPreview;
+      drawModal();
+    });
+  }
+
+  const authorChip = $('#authorChip');
+  if (authorChip && authorHref) {
+    authorChip.addEventListener('click', () => window.api.misc.openExternal(authorHref));
+  }
+
   document.querySelectorAll('.style-btn').forEach((b) => {
     b.addEventListener('click', () => {
       modalState.styleIdx = Number(b.dataset.style);
+      modalState.showPreview = false;
       drawModal();
     });
   });
@@ -668,6 +769,7 @@ function drawModal() {
   const uninstallBtn = $('#uninstallBtn');
   if (uninstallBtn) {
     uninstallBtn.addEventListener('click', async () => {
+      if (!await confirmDialog(`Удалить «${mod.name}»?`)) return;
       const r = await window.api.mods.remove(installedRec.id);
       if (r.error) toast(r.error, 'error');
       else toast(`${mod.name} удалён`);
@@ -690,9 +792,12 @@ function drawModal() {
       }, 80);
     });
   }
-  (mod.links || []).forEach((l, i) => {
-    const a = document.querySelector(`[data-link="${i}"]`);
-    if (a) a.addEventListener('click', () => window.api.misc.openExternal(l.url));
+  otherLinks.forEach((l) => {
+    const a = document.querySelector(`[data-link="${links.indexOf(l)}"]`);
+    if (a) a.addEventListener('click', () => {
+      const u = resolveUrl(l.url);
+      if (u) window.api.misc.openExternal(u);
+    });
   });
 }
 
@@ -798,7 +903,7 @@ async function renderLibrary() {
   libList.querySelectorAll('[data-del]').forEach((b) => {
     b.addEventListener('click', async () => {
       const rec = installed.find((m) => m.id === b.dataset.del);
-      if (!confirm(`Удалить «${rec.name}»?`)) return;
+      if (!await confirmDialog(`Удалить «${rec.name}»?`)) return;
       const r = await window.api.mods.remove(rec.id);
       if (r.error) toast(r.error, 'error');
       else toast(`${rec.name} удалён`);
@@ -838,7 +943,7 @@ async function renderLibrary() {
     });
     extList.querySelectorAll('[data-extdel]').forEach((b) => {
       b.addEventListener('click', async () => {
-        if (!confirm(`Удалить файл ${b.dataset.extdel}?`)) return;
+        if (!await confirmDialog(`Удалить файл ${b.dataset.extdel}?`)) return;
         await window.api.mods.externalRemove(b.dataset.extdel);
         renderLibrary();
       });
@@ -912,6 +1017,8 @@ async function renderPresets() {
   });
   list.querySelectorAll('[data-pdel]').forEach((b) => {
     b.addEventListener('click', async () => {
+      const p = presets.find((x) => x.id === b.dataset.pdel);
+      if (!await confirmDialog(`Удалить пресет «${p?.name || ''}»?`)) return;
       await window.api.presets.delete(b.dataset.pdel);
       renderPresets();
     });
@@ -1083,6 +1190,12 @@ async function renderSettings() {
       <div style="font-size:12.5px;color:var(--text-muted);margin-top:8px">
         Steam → Библиотека → ПКМ по Dota 2 → Свойства → Параметры запуска → вставь строку выше.
         Моды (кроме шрифтов и курсоров) работают только с этим параметром.
+      </div>
+      <div class="modal-note" style="margin-top:10px">
+        <b>Дота на русском?</b> Выбирай <code style="background:none;color:var(--primary-soft)">dota_russian</code> и параметр
+        <code style="background:none;color:var(--primary-soft)">-language russian</code> — тогда игра останется русской.
+        С <code style="background:none;color:var(--primary-soft)">-language 123</code> игра переключается на английский.
+        При смене папки установленные моды переезжают автоматически.
       </div>
     </div>
 
