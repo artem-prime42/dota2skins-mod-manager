@@ -92,6 +92,8 @@ npm run dist     # build the Windows installer
 
 Stack: Electron, plain HTML/CSS/JS renderer, no build step for the UI.
 
+Releases build automatically: push a `v*` tag and GitHub Actions compiles the installer and publishes it. Installed apps pick the update up on their own.
+
 ## Credits
 
 - **All mods, previews, guides and catalog data** come from the open-source

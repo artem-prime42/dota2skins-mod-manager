@@ -50,7 +50,8 @@
     "publish": {
       "provider": "github",
       "owner": "TheFleece",
-      "repo": "dota2-mod-manager"
+      "repo": "dota2-mod-manager",
+      "releaseType": "release"
     }
   }
 }
