@@ -1,7 +1,7 @@
-/* Dota 2 Mod Manager — renderer */
+/* Dota2skins mod manager — renderer */
 'use strict';
 
-const RAW_BASE = 'https://raw.githubusercontent.com/h6rd/Dota2PornFxWeb/main';
+const RAW_BASE = 'https://dota2skins.vercel.app';
 
 const CAT_RU = {
   heroes: 'Герои', 'item-effects': 'Эффекты предметов', 'hero-items': 'Предметы героев',
@@ -9,9 +9,9 @@ const CAT_RU = {
   couriers: 'Курьеры', terrains: 'Ландшафты', creeps: 'Крипы', trees: 'Деревья', river: 'Река',
   'ti-bp-effects': 'Паки эффектов', emblems: 'Эмблемы', 'creep-deny': 'Денай крипов',
   music: 'Музыка', 'hero-sounds': 'Звуки героев', sounds: 'Звуки', 'ranged-attack': 'Дальние атаки',
-  other: 'Разное', ranks: 'Ранги', 'item-icons': 'Иконки предметов', 'versus-screens': 'Экраны Versus',
+  other: 'Разное', ranks: 'Ранги', 'item-icons': 'Иконки предметов', 'versus-screens': 'Versus Screen',
   announcers: 'Анонсеры', wards: 'Варды', pedestal: 'Пьедесталы', huds: 'HUD',
-  herofx: 'Эффекты героев', pings: 'Пинги', packs: 'Паки', optimization: 'Оптимизация',
+  herofx: 'Эффекты героев', pings: 'Пинги', packs: 'Versus Screen', optimization: 'Оптимизация',
   tormentor: 'Тормент', 'high-five': 'High Five', ancient: 'Древние', roshan: 'Рошан',
   towers: 'Башни', fonts: 'Шрифты', sites: 'Сайты', guides: 'Гайды', news: 'Новости',
 };
@@ -27,7 +27,7 @@ const CAT_ICON = {
   'versus-screens': 'compare_arrows', 'item-icons': 'category', ranks: 'workspace_premium',
   pings: 'notifications_active', cursors: 'arrow_selector_tool', fonts: 'text_fields',
   announcers: 'mic', 'mega-kill': 'campaign', music: 'music_note', sounds: 'volume_up',
-  packs: 'inventory_2', optimization: 'speed', other: 'widgets', guides: 'menu_book',
+  packs: 'compare_arrows', optimization: 'speed', other: 'widgets', guides: 'menu_book',
   sites: 'language', tools: 'build', news: 'newspaper',
 };
 
@@ -38,10 +38,19 @@ const RAIL_SECTIONS = [
   ['Эффекты', ['shaders', 'ti-bp-effects', 'item-effects', 'ranged-attack', 'high-five']],
   ['Интерфейс', ['backgrounds', 'huds', 'emblems', 'versus-screens', 'item-icons', 'ranks', 'pings', 'cursors', 'fonts']],
   ['Звук', ['announcers', 'mega-kill', 'music', 'sounds']],
-  ['Прочее', ['packs', 'optimization', 'other', 'guides', 'sites']],
+  ['Прочее', ['packs', 'optimization', 'other', 'sites']],
 ];
 
-const CATALOG_EXCLUDE = ['tools', 'news'];
+const CATALOG_EXCLUDE = ['tools'];
+
+const HERO_PREVIEW_FALLBACKS = {
+  io: 'https://i.postimg.cc/SRq0t679/wisp-vert.jpg',
+  anti_mage: 'https://i.postimg.cc/zGPrXR85/antimage-vert.jpg',
+  lifestealer: 'https://i.postimg.cc/90p33DL0/life-stealer-vert.jpg',
+  nature_prophet: 'https://i.postimg.cc/bv2KyCmn/furion-vert.jpg',
+  necrophos: 'https://i.postimg.cc/d3JX9qw6/necrolyte-vert.jpg',
+  windranger: 'https://i.postimg.cc/x1B44G9x/Windranger-icon.webp',
+};
 
 const SORTS = [
   { key: 'default', label: 'По умолчанию' },
@@ -56,10 +65,11 @@ const state = {
   settings: null,
   activeCategory: 'all',
   search: '',
-  filters: { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '' },
+  filters: { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '', heroSearch: '' },
   installedIndex: new Map(),
   installing: new Set(),
   modIndex: new Map(),
+  authors: { selected: null, search: '', sort: 'default' },
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -71,9 +81,35 @@ function esc(s) {
 
 function fmtMB(bytes) { return (bytes / 1024 / 1024).toFixed(1); }
 
-function fmtDate(unix) {
-  if (!unix) return '';
-  return new Date(unix * 1000).toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' });
+function parseDateValue(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return value > 1e12 ? value : value * 1000;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+      const num = Number(trimmed);
+      return num > 1e12 ? num : num * 1000;
+    }
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function fmtDate(value) {
+  const ts = parseDateValue(value);
+  if (ts === null) return '';
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function getModDateValue(mod) {
+  return mod?.meta?.date || mod?.createdAt || mod?.created_at || mod?.date || null;
 }
 
 function plural(n, one, few, many) {
@@ -94,8 +130,30 @@ function toast(msg, type = 'ok', ms = 4000) {
 function previewUrl(categoryId, preview) {
   if (!preview) return null;
   if (/^https?:\/\//i.test(preview)) return preview;
+  if (/^file:\/\//i.test(preview)) return preview.replace(/^file:\/\//i, '');
   if (preview.startsWith('assets/previews/')) return `${RAW_BASE}/${preview.split('/').map(encodeURIComponent).join('/')}`;
   return `${RAW_BASE}/assets/previews/${encodeURIComponent(categoryId)}/${encodeURIComponent(preview)}`;
+}
+
+function resolveDownloadTarget(mod, style) {
+  const candidates = [];
+  const direct = style?.file || mod?.file || mod?.downloadUrl || mod?.downloadUrlOverride;
+  if (direct) candidates.push(direct);
+  if (Array.isArray(mod?.downloadOptions)) {
+    for (const opt of mod.downloadOptions) {
+      if (opt?.url) candidates.push(opt.url);
+    }
+  }
+  if (Array.isArray(mod?.links)) {
+    for (const link of mod.links) {
+      if (link?.type === 'download' && link?.url) candidates.push(link.url);
+      if ((link?.type === 'file' || link?.type === 'source') && link?.url) candidates.push(link.url);
+    }
+  }
+  const picked = candidates.find((value) => typeof value === 'string' && value.trim());
+  if (!picked) return null;
+  if (/^https?:\/\//i.test(picked)) return picked;
+  return `${RAW_BASE}/${picked.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 function isVideo(src) { return /\.(mp4|webm)$/i.test(src || ''); }
@@ -110,16 +168,17 @@ function resolveUrl(url) {
 }
 
 function mediaHtml(url, { hoverPlay = false, autoplay = false, controls = false } = {}) {
-  if (!url) {
+  const normalizedUrl = typeof url === 'string' ? url.trim() : '';
+  if (!normalizedUrl) {
     return `<div class="noimg"><span class="ms" style="font-size:36px">image</span></div>`;
   }
-  if (isVideo(url)) {
-    return `<video src="${esc(url)}" ${controls ? 'controls' : 'muted'} loop playsinline preload="${autoplay ? 'auto' : 'none'}" ${autoplay ? 'autoplay' : ''} ${hoverPlay ? 'data-hoverplay="1"' : ''}></video>`;
+  if (isVideo(normalizedUrl)) {
+    return `<video src="${esc(normalizedUrl)}" ${controls ? 'controls' : 'muted'} loop playsinline preload="${autoplay ? 'auto' : 'none'}" ${autoplay ? 'autoplay' : ''} ${hoverPlay ? 'data-hoverplay="1"' : ''}></video>`;
   }
-  if (isAudio(url)) {
-    return `<div class="audio-wrap"><span class="ms audio-icon">graphic_eq</span><audio src="${esc(url)}" controls preload="none"></audio></div>`;
+  if (isAudio(normalizedUrl)) {
+    return `<div class="audio-wrap"><span class="ms audio-icon">graphic_eq</span><audio src="${esc(normalizedUrl)}" controls preload="none"></audio></div>`;
   }
-  return `<img src="${esc(url)}" loading="lazy" alt="">`;
+  return `<img src="${esc(normalizedUrl)}" loading="lazy" alt="">`;
 }
 
 // ---------- custom confirm dialog ----------
@@ -157,6 +216,8 @@ function modPreviewMedia(categoryId, mod) {
   if (link) return resolveUrl(link.url);
   const p = mod.preview || mod.styles?.[0]?.preview;
   if (isMedia(p)) return previewUrl(categoryId, p);
+  const direct = mod.preview || mod.imageUrl || mod.thumbnail;
+  if (isMedia(direct)) return previewUrl(categoryId, direct);
   return null;
 }
 
@@ -309,7 +370,10 @@ function isGrouped(categoryId) {
 
 function visibleCategories() {
   const cats = state.catalog?.constants?.categories || [];
-  return cats.filter((c) => !CATALOG_EXCLUDE.includes(c.id) && categoryMods(c.id).length);
+  return cats
+    .filter((c) => !CATALOG_EXCLUDE.includes(c.id))
+    .map((c) => ({ ...c, _modsCount: categoryMods(c.id).length }))
+    .sort((a, b) => b._modsCount - a._modsCount || (a.id || '').localeCompare(b.id || ''));
 }
 
 function buildModIndex() {
@@ -327,6 +391,13 @@ function catName(id) {
 }
 
 function catIcon(id) { return CAT_ICON[id] || 'extension'; }
+
+function resolveHeroPreview(hero) {
+  const raw = hero?.preview || HERO_PREVIEW_FALLBACKS[hero?.slug] || HERO_PREVIEW_FALLBACKS[hero?.id];
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `${RAW_BASE}/${raw.split('/').map(encodeURIComponent).join('/')}`;
+}
 
 function installTarget(mod) {
   const f = mod.file;
@@ -396,14 +467,8 @@ function applyFilters(mods, catForInstalled) {
 
 // ---------- window controls ----------
 
-$('#winMin').addEventListener('click', () => window.api.win.minimize());
-$('#winMax').addEventListener('click', () => window.api.win.maximize());
-$('#winClose').addEventListener('click', () => window.api.win.close());
-window.api.win.onMaximized((maxed) => {
-  $('#winMax').innerHTML = maxed
-    ? '<svg viewBox="0 0 12 12" width="12" height="12"><rect x="2" y="3.5" width="6.5" height="6.5" fill="none" stroke="currentColor" stroke-width="1.1" rx="1"/><path d="M4 3.5V2.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>'
-    : '<svg viewBox="0 0 12 12" width="12" height="12"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2" rx="1"/></svg>';
-});
+$('#winMin')?.addEventListener('click', () => window.api.win.minimize());
+$('#winClose')?.addEventListener('click', () => window.api.win.close());
 
 // ---------- navigation ----------
 
@@ -412,6 +477,8 @@ document.querySelectorAll('.tb-tab').forEach((btn) => {
 });
 
 function switchView(view) {
+  closeModal();
+  closeSlotModals();
   document.querySelectorAll('.tb-tab').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   state.view = view;
   $('#catRail').classList.toggle('hidden', view !== 'catalog');
@@ -421,6 +488,11 @@ function switchView(view) {
 $('#openModsFolderBtn').addEventListener('click', async () => {
   const r = await window.api.misc.openLangFolder();
   if (r.error) toast(r.error, 'error');
+});
+
+$('#launchDotaBtn').addEventListener('click', async () => {
+  const r = await window.api.misc.launchDota();
+  if (r?.error) toast(r.error, 'warn');
 });
 
 // global search
@@ -448,8 +520,8 @@ function render() {
     case 'catalog': return renderCatalog();
     case 'library': return renderLibrary();
     case 'presets': return renderPresets();
+    case 'authors': return renderAuthors();
     case 'tools': return renderTools();
-    case 'guides': return renderGuides();
     case 'settings': return renderSettings();
   }
 }
@@ -458,15 +530,16 @@ function render() {
 
 function renderRail() {
   const rail = $('#catRail');
-  const cats = new Set(visibleCategories().map((c) => c.id));
+  const sortedCats = visibleCategories();
+  const cats = new Set(sortedCats.map((c) => c.id));
+  const catOrder = new Map(sortedCats.map((c, index) => [c.id, index]));
   let html = `
     <button class="rail-item ${state.activeCategory === 'all' ? 'active' : ''}" data-cat="all">
       <span class="ms">apps</span>Все категории
     </button>`;
-  for (const [label, ids] of RAIL_SECTIONS) {
-    const present = ids.filter((id) => cats.has(id));
+  for (const [, ids] of RAIL_SECTIONS) {
+    const present = ids.filter((id) => cats.has(id)).sort((a, b) => (catOrder.get(a) ?? 9999) - (catOrder.get(b) ?? 9999));
     if (!present.length) continue;
-    html += `<div class="rail-section">${esc(label)}</div>`;
     for (const id of present) {
       html += `
         <button class="rail-item ${state.activeCategory === id ? 'active' : ''}" data-cat="${esc(id)}">
@@ -479,7 +552,7 @@ function renderRail() {
   rail.querySelectorAll('.rail-item').forEach((b) => {
     b.addEventListener('click', () => {
       state.activeCategory = b.dataset.cat;
-      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '' };
+      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '', heroSearch: '' };
       if (state.search) {
         state.search = '';
         $('#globalSearch').value = '';
@@ -532,32 +605,32 @@ function renderHome() {
   viewRoot.innerHTML = `
     <div class="home-hero">
       <h1>Моды для Dota 2</h1>
-      <p>${cats.reduce((n, c) => n + categoryMods(c.id).length, 0)} модов в ${cats.length} категориях · каталог Dota2PornFx${state.catalog.fetchedAt ? ' · обновлён ' + new Date(state.catalog.fetchedAt).toLocaleDateString('ru') : ''}</p>
+      <p>${cats.reduce((n, c) => n + categoryMods(c.id).length, 0)} модов в ${cats.length} категориях${state.catalog.fetchedAt ? ' · обновлён ' + new Date(state.catalog.fetchedAt).toLocaleDateString('ru') : ''}</p>
     </div>
     ${recent.length ? `
       <div class="section-h"><span class="ms">new_releases</span>Недавно добавленные</div>
       <div class="recent-row">${recent.map((m, i) => cardHtml(m, i, true)).join('')}</div>` : ''}
     <div class="section-h"><span class="ms">apps</span>Категории</div>
     <div class="cat-tiles">
-      ${cats.map((c, i) => {
-        const prev = c.preview ? `${RAW_BASE}/assets/previews/categories/${encodeURIComponent(c.preview)}` : null;
-        return `
-        <div class="cat-tile" data-cat="${esc(c.id)}" style="--i:${Math.min(i, 24)}">
-          ${prev ? mediaHtml(prev) : ''}
-          <div class="ct-shade"></div>
-          <div class="ct-label">
-            <span class="ct-name">${esc(catName(c.id))}</span>
-            <span class="ct-cnt">${categoryMods(c.id).length}</span>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
+        ${cats.map((c, i) => {
+          const prev = c.preview ? previewUrl(c.id, c.preview) : null;
+          return `
+          <div class="cat-tile" data-cat="${esc(c.id)}" style="--i:${Math.min(i, 24)}">
+            ${prev ? mediaHtml(prev) : ''}
+            <div class="ct-shade"></div>
+            <div class="ct-label">
+              <span class="ct-name">${esc(catName(c.id))}</span>
+              <span class="ct-cnt">${categoryMods(c.id).length}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
   `;
 
   viewRoot.querySelectorAll('.cat-tile').forEach((t) => {
     t.addEventListener('click', () => {
       state.activeCategory = t.dataset.cat;
-      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '' };
+      state.filters = { sort: 'default', tags: new Set(), installedOnly: false, group: '', hero: '', heroSearch: '' };
       renderCatalog();
       $('#main').scrollTop = 0;
     });
@@ -593,19 +666,133 @@ function renderSearchResults() {
 
 // --- single category ---
 
+const SLOT_LABELS = {
+  set: 'Набор',
+  default: 'Набор',
+  head: 'Голова',
+  headpiece: 'Голова',
+  mask: 'Маска',
+  shoulders: 'Плечи',
+  back: 'Спина',
+  cape: 'Плащ',
+  legs: 'Ноги',
+  boots: 'Ботинки',
+  weapon: 'Оружие',
+  offhand: 'Левая рука',
+  arm: 'Рука',
+  arms: 'Руки',
+  body: 'Тело',
+  chest: 'Грудь',
+  waist: 'Пояс',
+  pet: 'Питомец',
+  tail: 'Хвост',
+  item: 'Предмет',
+  voice: 'Голос',
+  misc: 'Разное',
+  default: 'Набор',
+};
+const SLOT_ORDER = {
+  set: 0,
+  default: 0,
+  head: 1,
+  headpiece: 1,
+  mask: 2,
+  shoulders: 3,
+  back: 4,
+  cape: 5,
+  body: 6,
+  chest: 7,
+  waist: 8,
+  legs: 9,
+  boots: 10,
+  weapon: 11,
+  offhand: 12,
+  arm: 13,
+  arms: 13,
+  tail: 14,
+  pet: 15,
+  item: 16,
+  voice: 17,
+  misc: 18,
+};
+function translateSlot(slot) {
+  const key = (slot || 'default').toString().trim().toLowerCase();
+  return SLOT_LABELS[key] || slot || 'Набор';
+}
+function sortSlots(slots) {
+  return [...new Set(slots.map((slot) => slot || 'default'))].sort((a, b) => {
+    const aKey = (a || 'default').toString().trim().toLowerCase();
+    const bKey = (b || 'default').toString().trim().toLowerCase();
+    const order = (SLOT_ORDER[aKey] ?? 99) - (SLOT_ORDER[bKey] ?? 99);
+    if (order !== 0) return order;
+    return translateSlot(aKey).localeCompare(translateSlot(bKey), 'ru', { sensitivity: 'base' });
+  });
+}
+
 function renderCategory(categoryId) {
   const all = categoryMods(categoryId).map((m) => ({ ...m, _cat: categoryId }));
   const tags = collectTags(all);
   const groups = isGrouped(categoryId) ? collectGroups(all) : [];
   const heroes = categoryId === 'heroes'
-    ? (state.catalog?.constants?.HEROES_LIST || []).filter((h) => all.some((m) => heroMatches(h, m.name)))
+    ? (state.catalog?.constants?.HERO_CATALOG || []).filter((h) => (h.modsCount || 0) > 0)
     : [];
   const mods = applyFilters(all, categoryId);
 
   const grouped = isGrouped(categoryId) && !state.filters.group && state.filters.sort === 'default';
 
   let gridHtml = '';
-  if (!mods.length) {
+  if (categoryId === 'heroes') {
+    const selectedHero = state.filters.hero || '';
+    const heroSearch = (state.filters.heroSearch || '').toLowerCase();
+    const filteredHeroes = (heroSearch
+      ? heroes.filter((h) => h.name.toLowerCase().includes(heroSearch))
+      : heroes)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' }));
+    
+    if (selectedHero) {
+      const heroEntry = heroes.find((h) => h.slug === selectedHero || h.name === selectedHero);
+      const items = heroEntry ? all.filter((m) => (m.hero || '').toLowerCase() === heroEntry.slug.toLowerCase()) : [];
+      const slots = sortSlots(items.map((m) => m.slot || 'default'));
+      const slotCards = slots.map((slot) => {
+        const slotMods = items.filter((m) => (m.slot || 'default') === slot);
+        const modCount = slotMods.length;
+        const slotTitle = translateSlot(slot);
+        const firstPreview = slotMods.find((m) => m.preview || m.imageUrl)?.preview || slotMods.find((m) => m.preview || m.imageUrl)?.imageUrl || null;
+        const previewHtml = firstPreview ? `<div class="hero-slot-media">${mediaHtml(previewUrl(categoryId, firstPreview), { hoverPlay: false })}</div>` : '';
+        return `
+          <div class="hero-slot-card" data-slot="${esc(slot)}">
+            ${previewHtml}
+            <div class="hero-slot-info">
+              <div class="hero-slot-title">${esc(slotTitle)}</div>
+            </div>
+          </div>`;
+      }).join('');
+      gridHtml = `
+        <div class="hero-detail">
+          <button class="btn btn-ghost hero-back" id="heroBackBtn"><span class="ms">arrow_back</span>Назад к героям</button>
+          <div class="hero-detail-title">${esc(heroEntry?.name || selectedHero)}</div>
+          <div class="hero-slots-grid">${slotCards}</div>
+        </div>`;
+    } else if (!filteredHeroes.length) {
+      gridHtml = '<div class="empty-note">Нет доступных героев</div>';
+    } else {
+      const heroCards = filteredHeroes.map((hero) => {
+        const heroPreview = hero.preview || null;
+        const previewUrlValue = resolveHeroPreview(hero) || heroPreview;
+        const previewHtml = previewUrlValue ? `<div class="hero-card-media">${mediaHtml(previewUrl('heroes', previewUrlValue))}</div>` : '';
+        return `
+          <div class="card hero-card" data-hero="${esc(hero.slug)}">
+            ${previewHtml}
+            <div class="hero-card-content">
+              <div class="hero-card-title">${esc(hero.name)}</div>
+              <div class="hero-card-meta">${hero.modsCount || 0} ${plural(hero.modsCount || 0, 'мод', 'мода', 'модов')}</div>
+            </div>
+          </div>`;
+      }).join('');
+      gridHtml = `<div class="hero-grid">${heroCards}</div>`;
+    }
+  } else if (!mods.length) {
     gridHtml = '<div class="empty-note">Ничего не найдено — сбрось фильтры</div>';
   } else if (grouped) {
     let lastGroup = null;
@@ -629,7 +816,77 @@ function renderCategory(categoryId) {
     <div class="grid" id="modGrid">${gridHtml}</div>
   `;
   bindToolbar();
-  bindCards(viewRoot, mods);
+  if (categoryId === 'heroes') {
+    const selectedHero = state.filters.hero || '';
+    if (selectedHero) {
+      const heroEntry = (state.catalog?.constants?.HERO_CATALOG || []).find((h) => h.slug === selectedHero || h.name === selectedHero);
+      if (heroEntry) {
+        const items = all.filter((m) => (m.hero || '').toLowerCase() === heroEntry.slug.toLowerCase());
+        viewRoot.querySelectorAll('.hero-slot-card').forEach((card) => {
+          card.addEventListener('click', () => {
+            const slot = card.dataset.slot;
+            const slotMods = items.filter((m) => (m.slot || 'default') === slot);
+            openSlotModal(slot, slotMods, heroEntry.name, categoryId);
+          });
+        });
+      }
+      const backBtn = $('#heroBackBtn');
+      if (backBtn) {
+        backBtn.addEventListener('click', () => {
+          state.filters.hero = '';
+          state.filters.heroSearch = '';
+          renderCatalog();
+        });
+      }
+    } else {
+      viewRoot.querySelectorAll('.hero-card').forEach((card) => {
+        card.addEventListener('click', () => {
+          state.filters.hero = card.dataset.hero;
+          renderCatalog();
+        });
+      });
+    }
+  } else {
+    bindCards(viewRoot, mods);
+  }
+}
+
+// --- hero slot modal ---
+
+function closeSlotModals() {
+  document.querySelectorAll('.slot-modal-overlay').forEach((overlay) => overlay.remove());
+}
+
+function openSlotModal(slot, mods, heroName, categoryId) {
+  closeModal();
+  closeSlotModals();
+  const overlay = document.createElement('div');
+  overlay.className = 'slot-modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 class="modal-title">${esc(heroName)} — ${esc(translateSlot(slot))}</h2>
+        <button class="modal-close" aria-label="Закрыть"><span class="ms">close</span></button>
+      </div>
+      <div class="modal-body">
+        <div class="grid" id="slotModsGrid">
+          ${mods.map((m, i) => cardHtml({ ...m, _cat: categoryId }, i, false)).join('')}
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); close(); }
+  };
+  document.addEventListener('keydown', onKey, true);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('.modal-close').addEventListener('click', close);
+  bindCards(overlay.querySelector('#slotModsGrid'), mods.map((m) => ({ ...m, _cat: categoryId })));
 }
 
 // --- toolbar ---
@@ -638,39 +895,57 @@ const GROUP_LABEL = { 'hero-items': 'Все герои', 'item-effects': 'Все
 
 function toolbarHtml(resultCount, { tags = [], groups = [], heroes = [], categoryId = null }) {
   const f = state.filters;
-  return `
-    <div class="toolbar">
+  const isHeroes = categoryId === 'heroes';
+  const toolbarParts = [];
+
+  if (!isHeroes) {
+    toolbarParts.push(`
       <div class="select-wrap">
         <span class="ms">sort</span>
         <select id="sortSelect">
           ${SORTS.map((s) => `<option value="${s.key}" ${f.sort === s.key ? 'selected' : ''}>${s.label}</option>`).join('')}
         </select>
-      </div>
-      ${heroes.length ? `
-        <div class="select-wrap">
-          <span class="ms">person</span>
-          <select id="heroSelect">
-            <option value="">Все герои</option>
-            ${heroes.map((h) => `<option value="${esc(h)}" ${f.hero === h ? 'selected' : ''}>${esc(h)}</option>`).join('')}
-          </select>
-        </div>` : ''}
-      ${groups.length ? `
-        <div class="select-wrap">
-          <span class="ms">${categoryId === 'hero-items' ? 'person' : catIcon(categoryId) || 'group'}</span>
-          <select id="groupSelect">
-            <option value="">${GROUP_LABEL[categoryId] || 'Все группы'}</option>
-            ${groups.map((g) => `<option value="${esc(g)}" ${f.group === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
-          </select>
-        </div>` : ''}
-      <div class="sep"></div>
+      </div>`);
+  }
+
+  if (isHeroes && !f.hero) {
+    toolbarParts.push(`
+      <div class="hero-search-wrap">
+        <span class="ms">search</span>
+        <input type="text" id="heroSearchInput" placeholder="Поиск героев..." value="${esc(f.heroSearch || '')}">
+      </div>`);
+  }
+
+  if (!isHeroes && groups.length) {
+    toolbarParts.push(`
+      <div class="select-wrap">
+        <span class="ms">${categoryId === 'hero-items' ? 'person' : catIcon(categoryId) || 'group'}</span>
+        <select id="groupSelect">
+          <option value="">${GROUP_LABEL[categoryId] || 'Все группы'}</option>
+          ${groups.map((g) => `<option value="${esc(g)}" ${f.group === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}
+        </select>
+      </div>`);
+  }
+
+  if (!isHeroes) {
+    toolbarParts.push(`<div class="sep"></div>`);
+    toolbarParts.push(`
       <button class="fchip ${f.installedOnly ? 'active' : ''}" id="installedChip">
         <span class="ms">check_circle</span>Установленные
-      </button>
-      ${tags.length ? '<div class="sep"></div>' : ''}
-      ${tags.map(([tag, cnt]) => `
-        <button class="fchip ${f.tags.has(tag) ? 'active' : ''}" data-tag="${esc(tag)}">
-          ${esc(tagLabel(categoryId, tag))}<span style="opacity:.55">${cnt}</span>
-        </button>`).join('')}
+      </button>`);
+  }
+
+  if (!isHeroes && tags.length) {
+    toolbarParts.push(`<div class="sep"></div>`);
+    toolbarParts.push(...tags.map(([tag, cnt]) => `
+      <button class="fchip ${f.tags.has(tag) ? 'active' : ''}" data-tag="${esc(tag)}">
+        ${esc(tagLabel(categoryId, tag))}<span style="opacity:.55">${cnt}</span>
+      </button>`));
+  }
+
+  return `
+    <div class="toolbar">
+      ${toolbarParts.join('')}
       <span class="count">${resultCount} ${plural(resultCount, 'результат', 'результата', 'результатов')}</span>
     </div>`;
 }
@@ -688,6 +963,20 @@ function bindToolbar() {
     state.filters.hero = e.target.value;
     renderCatalog();
   });
+  let heroSearchTimer = null;
+  const heroSearchInput = $('#heroSearchInput');
+  if (heroSearchInput) {
+    heroSearchInput.addEventListener('input', (e) => {
+      clearTimeout(heroSearchTimer);
+      heroSearchTimer = setTimeout(() => {
+        state.filters.heroSearch = e.target.value;
+        renderCatalog();
+      }, 180);
+    });
+    heroSearchInput.addEventListener('focus', () => {
+      heroSearchInput.select();
+    });
+  }
   $('#installedChip')?.addEventListener('click', () => {
     state.filters.installedOnly = !state.filters.installedOnly;
     renderCatalog();
@@ -706,13 +995,17 @@ function bindToolbar() {
 
 function cardHtml(m, i, withCat = false) {
   const cat = m._cat;
-  const prev = previewUrl(cat, m.preview || (m.styles?.[0]?.preview));
+  const previewCandidate = m.preview || m.imageUrl || m.thumbnail || (m.styles?.[0]?.preview);
+  const prev = previewUrl(cat, previewCandidate);
   const installed = isInstalled(cat, m);
   const isPack = m.type === 'pack';
   const external = !installTarget(m) && !m.styles && !isPack;
   const tags = Object.entries(m.tags || {}).filter(([, v]) => v).map(([k]) => k).slice(0, 3);
-  const author = m.author || m.sender;
+  const author = (m.author || m.sender || '').trim();
+  const hideAuthor = author && ['Unknown', 'Anonymous'].includes(author);
   const playable = modPreviewMedia(cat, m);
+  const authorProfile = (state.catalog?.constants?.AUTHOR_PROFILES || []).find((entry) => entry.displayName.toLowerCase() === author.toLowerCase() || entry.id.toLowerCase() === author.toLowerCase());
+  const authorAvatar = authorProfile?.avatarUrl ? `<img class="author-chip-avatar" src="${esc(authorProfile.avatarUrl)}" alt="${esc(author)}">` : '<span class="ms">person</span>';
   return `
     <div class="card" data-key="${esc(keyOf(cat, m.name, null))}" style="--i:${Math.min(i, 28)}">
       <div class="card-media">
@@ -736,9 +1029,9 @@ function cardHtml(m, i, withCat = false) {
       <div class="card-body">
         <div class="card-name">${esc(m.name)}</div>
         <div class="card-meta">
-          ${withCat ? `<span>${esc(catName(cat))}</span>` : ''}
-          ${m.meta?.date ? `<span>${fmtDate(m.meta.date)}</span>` : ''}
-          ${author ? `<span class="author-chip"><span class="ms">person</span>${esc(author)}</span>` : ''}
+          ${withCat ? '' : ''}
+          ${getModDateValue(m) ? `<span>${fmtDate(getModDateValue(m))}</span>` : ''}
+          ${author && !hideAuthor ? `<button class="author-chip ${authorProfile ? 'clickable' : ''}" data-author-id="${esc(authorProfile?.id || '')}" type="button">${authorAvatar}${esc(author)}</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -764,6 +1057,20 @@ function bindCards(root, modsList) {
       card.addEventListener('mouseenter', () => { v.play().catch(() => {}); });
       card.addEventListener('mouseleave', () => { v.pause(); });
     }
+    const authorChip = card.querySelector('.author-chip.clickable');
+    if (authorChip) {
+      authorChip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const authorId = authorChip.dataset.authorId;
+        if (authorId) {
+          closeModal();
+          closeSlotModals();
+          state.authors = { selected: authorId };
+          state.view = 'authors';
+          render();
+        }
+      });
+    }
     const playBtn = card.querySelector('.mtag-play');
     if (playBtn) {
       playBtn.addEventListener('click', (e) => {
@@ -788,6 +1095,7 @@ function findModByName(cat, name) {
 let modalState = null;
 
 function openModModal(categoryId, mod) {
+  closeSlotModals();
   modalState = { categoryId, mod, styleIdx: 0 };
   drawModal();
   $('#modalOverlay').classList.remove('hidden');
@@ -820,7 +1128,8 @@ function drawModal() {
   const styles = mod.styles || null;
   const cur = styles ? styles[styleIdx] : mod;
   const fileRef = styles ? cur.file : mod.file;
-  const target = fileRef && /\.(vpk|zip)$/i.test(fileRef) ? fileRef : null;
+  const downloadTarget = resolveDownloadTarget(mod, styles ? cur : null);
+  const target = downloadTarget && /\.(vpk|zip)$/i.test(downloadTarget) ? downloadTarget : null;
   const isPack = mod.type === 'pack';
   const styleLabel = styles ? cur.label : null;
   const installedRec = state.installedIndex.get(keyOf(categoryId, mod.name, styleLabel));
@@ -837,6 +1146,9 @@ function drawModal() {
     (authorLink && !/^https?:\/\//i.test(authorLink.url) ? authorLink.url : null);
   const authorHref = (authorLink && /^https?:\/\//i.test(authorLink.url) ? authorLink.url : null) ||
     (authorName ? authorUrl(authorName) : null);
+  const hideAuthor = authorName && ['Unknown', 'Anonymous'].includes(authorName);
+  const authorProfile = (state.catalog?.constants?.AUTHOR_PROFILES || []).find((entry) => entry.displayName.toLowerCase() === authorName?.toLowerCase() || entry.id.toLowerCase() === authorName?.toLowerCase());
+  const authorAvatar = authorProfile?.avatarUrl ? `<img class="author-chip-avatar" src="${esc(authorProfile.avatarUrl)}" alt="${esc(authorName)}">` : '<span class="ms">person</span>';
 
   const otherLinks = links.filter((l) => !(l.type === 'preview' && isMedia(l.url)) && l.type !== 'author');
 
@@ -862,10 +1174,10 @@ function drawModal() {
         <span>${esc(catName(categoryId))}</span>
         ${mod._group ? `<span>· ${esc(mod._group)}</span>` : ''}
         ${mod._custom ? '<span>· свой пак</span>' : ''}
-        ${mod.meta?.date ? `<span>· ${fmtDate(mod.meta.date)}</span>` : ''}
-        ${authorName ? `
-          <button class="author-chip ${authorHref ? 'clickable' : ''}" id="authorChip" ${authorHref ? '' : 'disabled'}>
-            <span class="ms">person</span>${esc(authorName)}${authorHref ? '<span class="ms" style="font-size:11px">open_in_new</span>' : ''}
+        ${getModDateValue(mod) ? `<span>· ${fmtDate(getModDateValue(mod))}</span>` : ''}
+        ${authorName && !hideAuthor ? `
+          <button class="author-chip ${authorProfile ? 'clickable' : ''}" id="authorChip" ${authorProfile ? '' : 'disabled'} data-author-id="${esc(authorProfile?.id || '')}">
+            ${authorAvatar}${esc(authorName)}${authorProfile ? '<span class="ms" style="font-size:11px">open_in_new</span>' : ''}
           </button>` : ''}
       </div>
       ${styles ? `
@@ -904,11 +1216,10 @@ function drawModal() {
         ${!isPack && target ? (installedRec
           ? `<button class="btn btn-danger" id="uninstallBtn"><span class="ms">delete</span>Удалить</button>`
           : `<button class="btn btn-primary" id="installBtn" ${busy ? 'disabled' : ''}><span class="ms">download</span>${busy ? 'Установка…' : 'Установить'}</button>`) : ''}
-        ${!isPack && !target && mod.file ? `<button class="btn" id="openLinkBtn"><span class="ms">open_in_new</span>Открыть ссылку</button>` : ''}
+        ${!isPack && !target && downloadTarget ? `<button class="btn" id="openLinkBtn"><span class="ms">open_in_new</span>Открыть ссылку</button>` : ''}
       </div>
-      ${otherLinks.length || guide ? `
+      ${otherLinks.length ? `
         <div class="modal-links">
-          ${guide ? `<a id="modalGuideLink">Гайд: ${esc(guide.title)}</a>` : ''}
           ${otherLinks.map((l) => `<a data-link="${links.indexOf(l)}">${esc(LINK_LABEL[l.type] || l.type || 'ссылка')}</a>`).join('')}
         </div>` : ''}
       ${categoryId === 'fonts' ? `<div class="modal-note">Шрифт ставится в файлы игры (game\\dota\\panorama\\fonts) — параметр запуска не нужен. Оригиналы сохраняются автоматически.</div>` : ''}
@@ -924,8 +1235,19 @@ function drawModal() {
   }
 
   const authorChip = $('#authorChip');
-  if (authorChip && authorHref) {
-    authorChip.addEventListener('click', () => window.api.misc.openExternal(authorHref));
+  if (authorChip) {
+    authorChip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (authorChip.dataset.authorId) {
+        closeModal();
+        closeSlotModals();
+        state.authors = { selected: authorChip.dataset.authorId };
+        state.view = 'authors';
+        render();
+      } else if (authorHref) {
+        window.api.misc.openExternal(authorHref);
+      }
+    });
   }
 
   // pack interactions
@@ -986,17 +1308,10 @@ function drawModal() {
   const packBtn = $('#installPackBtn');
   if (packBtn) packBtn.addEventListener('click', () => installPack(mod));
   const openLinkBtn = $('#openLinkBtn');
-  if (openLinkBtn) openLinkBtn.addEventListener('click', () => window.api.misc.openExternal(mod.file));
+  if (openLinkBtn) openLinkBtn.addEventListener('click', () => window.api.misc.openExternal(downloadTarget));
   const guideLink = $('#modalGuideLink');
   if (guideLink) {
-    guideLink.addEventListener('click', () => {
-      closeModal();
-      switchView('guides');
-      setTimeout(() => {
-        const el = document.querySelector(`[data-guide="${mod.guideId}"]`);
-        if (el) { el.classList.add('open'); el.scrollIntoView({ behavior: 'smooth' }); }
-      }, 80);
-    });
+    guideLink.remove();
   }
   otherLinks.forEach((l) => {
     const a = document.querySelector(`[data-link="${links.indexOf(l)}"]`);
@@ -1016,7 +1331,8 @@ async function doInstall(categoryId, mod, styleLabel, fileRef, preview) {
   }
   state.installing.add(k);
   if (modalState) drawModal();
-  const r = await window.api.mods.install({ categoryId, name: mod.name, styleLabel, fileRef, preview });
+  const installTarget = resolveDownloadTarget(mod, styleLabel ? mod.styles?.find((s) => s.label === styleLabel) : null) || fileRef;
+  const r = await window.api.mods.install({ categoryId, name: mod.name, styleLabel, fileRef: installTarget, preview });
   state.installing.delete(k);
   if (r.error && !r.already) toast(`${mod.name}: ${r.error}`, 'error', 6000);
   else if (!r.error) toast(`${mod.name} установлен`);
@@ -1034,7 +1350,7 @@ async function installPack(pack) {
     const hit = state.modIndex.get(name.toLowerCase());
     if (!hit) { skip++; continue; }
     const { categoryId, mod } = hit;
-    const fileRef = mod.file || mod.styles?.[0]?.file;
+    const fileRef = resolveDownloadTarget(mod, mod.styles?.[0]) || mod.file || mod.styles?.[0]?.file;
     const styleLabel = mod.file ? null : mod.styles?.[0]?.label || null;
     if (!fileRef || !/\.(vpk|zip)$/i.test(fileRef)) { skip++; continue; }
     if (state.installedIndex.has(keyOf(categoryId, mod.name, styleLabel))) { skip++; continue; }
@@ -1232,6 +1548,167 @@ async function renderPresets() {
   });
 }
 
+// ===== Authors =====
+
+function collectAuthors() {
+  const mods = Object.values(state.catalog?.mods?.modsData || {})
+    .flatMap((entry) => Array.isArray(entry) ? entry : (entry?.groups ? [] : []))
+    .filter(Boolean);
+
+  const allMods = [];
+  for (const category of Object.values(state.catalog?.mods?.modsData || {})) {
+    if (Array.isArray(category)) {
+      allMods.push(...category);
+    }
+  }
+
+  const authors = new Map();
+  for (const mod of allMods) {
+    const author = (mod.author || mod.authorName || '').toString().trim();
+    if (!author) continue;
+    const key = author.toLowerCase();
+    if (!authors.has(key)) authors.set(key, { name: author, count: 0 });
+    authors.get(key).count += 1;
+  }
+
+  return [...authors.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function getAuthorVisibleMods(author) {
+  const mods = [...(author.mods || [])];
+  const search = (state.authors?.search || '').trim().toLowerCase();
+  const sort = state.authors?.sort || 'default';
+
+  const filtered = search
+    ? mods.filter((mod) => (mod.name || '').toLowerCase().includes(search))
+    : mods;
+
+  const withDate = filtered.map((mod) => ({
+    ...mod,
+    _dateValue: (() => {
+      const raw = getModDateValue(mod);
+      if (!raw) return null;
+      const parsed = parseDateValue(raw);
+      return parsed ? parsed / 1000 : null;
+    })(),
+  }));
+
+  if (sort === 'date') {
+    withDate.sort((a, b) => {
+      const aDate = a._dateValue ?? 0;
+      const bDate = b._dateValue ?? 0;
+      return bDate - aDate;
+    });
+  } else if (sort === 'date-asc') {
+    withDate.sort((a, b) => {
+      const aDate = a._dateValue ?? 0;
+      const bDate = b._dateValue ?? 0;
+      return aDate - bDate;
+    });
+  } else if (sort === 'name') {
+    withDate.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru', { sensitivity: 'base' }));
+  } else if (sort === 'name-desc') {
+    withDate.sort((a, b) => (b.name || '').localeCompare(a.name || '', 'ru', { sensitivity: 'base' }));
+  }
+
+  return withDate.map(({ _dateValue, ...mod }) => mod);
+}
+
+function renderAuthorMods(author) {
+  const mods = getAuthorVisibleMods(author);
+  const grid = $('#authorModsGrid');
+  const meta = $('.author-profile-meta');
+  if (meta) {
+    meta.textContent = `${mods.length} ${plural(mods.length, 'мод', 'мода', 'модов')}`;
+  }
+  if (!grid) return;
+  grid.innerHTML = mods.length
+    ? mods.map((m, i) => cardHtml({ ...m, _cat: m.categoryId || 'other' }, i, true)).join('')
+    : '<div class="empty-note">У этого автора пока нет модов</div>';
+  bindCards(viewRoot, mods.map((m) => ({ ...m, _cat: m.categoryId || 'other' })));
+}
+
+function renderAuthors() {
+  const authors = state.catalog?.constants?.AUTHOR_PROFILES || [];
+  const selectedAuthor = state.authors?.selected || null;
+
+  if (selectedAuthor) {
+    const author = authors.find((entry) => entry.id === selectedAuthor) || null;
+    if (!author) {
+      state.authors = { selected: null, search: '', sort: 'default' };
+      return renderAuthors();
+    }
+
+    viewRoot.innerHTML = `
+      <div class="view-header">
+        <button class="btn btn-ghost" id="authorBackBtn"><span class="ms">arrow_back</span>Назад к авторам</button>
+      </div>
+      <div class="author-profile">
+        <div class="author-profile-card">
+          <div class="author-profile-avatar">${author.avatarUrl ? `<img src="${esc(author.avatarUrl)}" alt="${esc(author.displayName)}">` : '<span class="ms">person</span>'}</div>
+          <div class="author-profile-info">
+            <h1 class="view-title">${esc(author.displayName)}</h1>
+            <div class="author-profile-meta"></div>
+            <div class="author-links">
+              ${Object.entries(author.links || {}).filter(([, url]) => url).map(([type, url]) => `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(type)}</a>`).join('')}
+              ${author.authorLink ? `<a href="${esc(author.authorLink)}" target="_blank" rel="noreferrer">Сайт</a>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="author-profile-tools">
+          <label class="author-profile-search" for="authorSearchInput">
+            <span class="ms">search</span>
+            <input class="input" id="authorSearchInput" placeholder="Поиск модов…" value="${esc(state.authors?.search || '')}">
+          </label>
+          <select class="input" id="authorSortSelect">
+            <option value="default" ${state.authors?.sort === 'default' ? 'selected' : ''}>По умолчанию</option>
+            <option value="date" ${state.authors?.sort === 'date' ? 'selected' : ''}>По дате новее</option>
+            <option value="date-asc" ${state.authors?.sort === 'date-asc' ? 'selected' : ''}>По дате старше</option>
+            <option value="name" ${state.authors?.sort === 'name' ? 'selected' : ''}>По названию от А-Я</option>
+            <option value="name-desc" ${state.authors?.sort === 'name-desc' ? 'selected' : ''}>По названию от Я-А</option>
+          </select>
+        </div>
+        <div class="grid" id="authorModsGrid"></div>
+      </div>
+    `;
+
+    $('#authorBackBtn')?.addEventListener('click', () => {
+      state.authors = { selected: null, search: '', sort: 'default' };
+      renderAuthors();
+    });
+    $('#authorSearchInput')?.addEventListener('input', (e) => {
+      state.authors = { ...state.authors, search: e.target.value };
+      renderAuthorMods(author);
+    });
+    $('#authorSortSelect')?.addEventListener('change', (e) => {
+      state.authors = { ...state.authors, sort: e.target.value };
+      renderAuthorMods(author);
+    });
+    renderAuthorMods(author);
+    return;
+  }
+
+  viewRoot.innerHTML = `
+    <div class="view-header"><h1 class="view-title">Авторы</h1></div>
+    ${authors.length ? `
+      <div class="tool-grid">
+        ${authors.map((author, i) => `
+          <div class="tool-card author-card" style="--i:${i}" data-author-id="${esc(author.id)}">
+            <div class="author-card-avatar">${author.avatarUrl ? `<img src="${esc(author.avatarUrl)}" alt="${esc(author.displayName)}">` : '<span class="ms">person</span>'}</div>
+            <div class="tool-name">${esc(author.displayName)}</div>
+            <div style="color:var(--text-muted);font-size:12px">${author.mods.length} ${plural(author.mods.length, 'мод', 'мода', 'модов')}</div>
+          </div>`).join('')}
+      </div>` : '<div class="empty-note">Авторы не найдены</div>'}
+  `;
+
+  viewRoot.querySelectorAll('.author-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      state.authors = { selected: card.dataset.authorId, search: '', sort: 'default' };
+      renderAuthors();
+    });
+  });
+}
+
 // ===== Tools =====
 
 async function renderTools() {
@@ -1290,15 +1767,6 @@ async function renderTools() {
   });
   viewRoot.querySelectorAll('[data-url]').forEach((b) => {
     b.addEventListener('click', () => window.api.misc.openExternal(b.dataset.url));
-  });
-  viewRoot.querySelectorAll('[data-guide]').forEach((b) => {
-    b.addEventListener('click', () => {
-      switchView('guides');
-      setTimeout(() => {
-        const el = document.querySelector(`[data-guide="${b.dataset.guide}"]`);
-        if (el) { el.classList.add('open'); el.scrollIntoView({ behavior: 'smooth' }); }
-      }, 80);
-    });
   });
 }
 
@@ -1361,7 +1829,7 @@ async function renderSettings() {
   const s = await window.api.settings.get();
   state.settings = s;
   const cacheSize = await window.api.misc.cacheSize();
-  const appVersion = await window.api.update.version();
+  const appVersion = '1.0';
 
   viewRoot.innerHTML = `
     <div class="view-header"><h1 class="view-title">Настройки</h1></div>
@@ -1428,7 +1896,7 @@ async function renderSettings() {
       </div>
       <div class="settings-row">
         <span class="settings-label">Источник</span>
-        <a style="color:var(--primary-soft);cursor:pointer;font-size:12.5px" id="srcLink">github.com/h6rd/Dota2PornFxWeb</a>
+        <a style="color:var(--primary-soft);cursor:pointer;font-size:12.5px" id="srcLink">dota2skins.vercel.app</a>
       </div>
     </div>
 
@@ -1436,16 +1904,13 @@ async function renderSettings() {
       <h3>О программе</h3>
       <div class="settings-row">
         <span class="settings-label">Версия</span>
-        <span style="font-variant-numeric:tabular-nums">v${esc(appVersion)}</span>
-        <a style="color:var(--primary-soft);cursor:pointer;font-size:12.5px" id="repoLink">github.com/TheFleece/dota2-mod-manager</a>
+        <span style="font-variant-numeric:tabular-nums">${esc(appVersion)}</span>
       </div>
       <div style="font-size:12.5px;color:var(--text-muted)">
         Обновления скачиваются автоматически из GitHub Releases — когда новая версия готова, появится кнопка установки.
       </div>
     </div>
   `;
-  $('#repoLink').addEventListener('click', () => window.api.misc.openExternal('https://github.com/TheFleece/dota2-mod-manager'));
-
   $('#detectBtn').addEventListener('click', async () => {
     const found = await window.api.settings.detectDota();
     if (found) toast('Dota 2 найдена: ' + found);
@@ -1479,7 +1944,7 @@ async function renderSettings() {
     await loadCatalog(true);
     renderSettings();
   });
-  $('#srcLink').addEventListener('click', () => window.api.misc.openExternal('https://github.com/h6rd/Dota2PornFxWeb'));
+  $('#srcLink').addEventListener('click', () => window.api.misc.openExternal('https://dota2skins.vercel.app/'));
 }
 
 // ---------- status bar ----------

@@ -1,11 +1,11 @@
 {
-  "name": "dota2-mod-manager",
-  "productName": "Dota 2 Mod Manager",
+  "name": "dota2skins-mod-manager",
+  "productName": "Dota2skins mod manager",
   "version": "1.0.1",
   "description": "Desktop mod manager for Dota 2 — browse, install, toggle and preset 1100+ cosmetic mods from the Dota2PornFx catalog",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "node scripts/start-electron.js",
     "dist": "electron-builder --win"
   },
   "repository": {
@@ -16,7 +16,7 @@
   "license": "GPL-3.0",
   "homepage": "https://github.com/TheFleece/dota2-mod-manager",
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "^33.4.11",
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
@@ -24,9 +24,9 @@
     "electron-updater": "^6.3.9"
   },
   "build": {
-    "appId": "com.thefleece.dota2modmanager",
-    "productName": "Dota 2 Mod Manager",
-    "icon": "build/icon.ico",
+    "appId": "com.thefleece.dota2skinsmodmanager",
+    "productName": "Dota2skins mod manager",
+    "icon": "build/icon.png",
     "files": [
       "main.js",
       "preload.js",
@@ -46,7 +46,7 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Dota 2 Mod Manager",
+      "shortcutName": "Dota2skins mod manager",
       "deleteAppDataOnUninstall": false
     },
     "publish": {
