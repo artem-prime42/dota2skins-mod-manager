@@ -6,7 +6,7 @@
   <p><b>Desktop mod launcher for Dota 2.</b> Browse 1100+ cosmetic mods and install them in one click. The app copies files, allocates pak slots and cleans up after itself.</p>
 
   <p>
-    <a href="https://github.com/TheFleece/dota2-mod-manager/releases/latest">
+    <a href="https://github.com/artem-prime42/dota2skins-mod-manager/releases/latest">
       <img src="https://img.shields.io/github/v/release/TheFleece/dota2-mod-manager?style=for-the-badge&color=8b6ff0&label=Download" alt="Latest release">
     </a>
     <img src="https://img.shields.io/badge/Windows-10%2F11-201c2c?style=for-the-badge" alt="Windows">
@@ -40,7 +40,7 @@
 
 ## Installation
 
-1. Download **Dota 2 Mod Manager Setup** from the [latest release](https://github.com/TheFleece/dota2-mod-manager/releases/latest)
+1. Download **Dota 2 Mod Manager Setup** from the [latest release](https://github.com/artem-prime42/dota2skins-mod-manager/releases/latest)
 2. Run it. The app installs, creates a desktop shortcut and starts
 3. It finds your Dota 2 installation on its own (you can change the path in Settings)
 4. Add the launch option shown in **Settings** to Steam (`Steam → Dota 2 → Properties → Launch Options`):
@@ -69,7 +69,7 @@ Downloads live in `%APPDATA%/dota2-mod-manager/downloads`, the install manifest 
 
 ## Установка (Russian)
 
-1. Скачай **Dota 2 Mod Manager Setup** из [последнего релиза](https://github.com/TheFleece/dota2-mod-manager/releases/latest)
+1. Скачай **Dota 2 Mod Manager Setup** из [последнего релиза](https://github.com/artem-prime42/dota2skins-mod-manager/releases/latest)
 2. Запусти. Приложение установится, создаст ярлык и откроется
 3. Путь к Dota 2 находится автоматически
 4. Добавь параметр запуска из **Настроек** в Steam (`Steam → Dota 2 → Свойства → Параметры запуска`):
@@ -83,8 +83,8 @@ Downloads live in `%APPDATA%/dota2-mod-manager/downloads`, the install manifest 
 ## Development
 
 ```bash
-git clone https://github.com/TheFleece/dota2-mod-manager.git
-cd dota2-mod-manager
+git clone https://github.com/artem-prime42/dota2skins-mod-manager.git
+cd dota2skins-mod-manager
 npm install
 npm start        # run from source
 npm run dist     # build the Windows installer
@@ -97,7 +97,7 @@ Stack: Electron, plain HTML/CSS/JS renderer, no build step for the UI.
 The launcher now reads the catalog from a remote JSON file instead of a local site copy. The default public source is:
 
 ```bash
-DOTA2SKINS_CATALOG_URL=https://raw.githubusercontent.com/artem-prime42/dota2-mod-manager-catalog/main/catalog.json
+DOTA2SKINS_CATALOG_URL=https://raw.githubusercontent.com/artem-prime42/dota2skins-mod-manager/main/catalog.json
 ```
 
 You can override it with your own repository URL if needed.
