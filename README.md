@@ -3,40 +3,22 @@
 
   <h1>Dota 2 Mod Manager</h1>
 
-  <p><b>Desktop mod launcher for Dota 2.</b> Browse 1100+ cosmetic mods and install them in one click. The app copies files, allocates pak slots and cleans up after itself.</p>
+  <p><b>Desktop mod launcher for Dota 2.</b></p>
 
   <p>
-    <a href="https://github.com/artem-prime42/dota2skins-mod-manager/releases/latest">
-      <img src="https://img.shields.io/github/v/release/artem-prime42/dota2skins-mod-manager?style=for-the-badge&color=8b6ff0&label=Download" alt="Latest release">
-    </a>
-    <img src="https://img.shields.io/badge/Windows-10%2F11-201c2c?style=for-the-badge" alt="Windows">
-    <img src="https://img.shields.io/badge/License-GPL--3.0-c4b5fd?style=for-the-badge" alt="License">
+    Preview:
   </p>
 
-  <img src="docs/screenshots/home.png" alt="Home screen" width="100%">
+  <img src="https://i.postimg.cc/V619pVCP/dota2skins.png" alt="Preview" width="720">
 </div>
 
 ---
 
-## Features
+## About
 
-| | | |
-|---|---|---|
-| <img src="docs/icons/catalog.svg" width="20"> | **Full catalog** | 1100+ mods in 40 categories: heroes, terrains, shaders, fonts, cursors, announcers, music. Synced with the [Dota2PornFx](https://github.com/h6rd/Dota2PornFxWeb) repository |
-| <img src="docs/icons/install.svg" width="20"> | **One-click install** | The app downloads the mod, picks a free pak slot, gives priority mods `!pak` names and unpacks terrain `maps/` folders |
-| <img src="docs/icons/player.svg" width="20"> | **Built-in previews** | Video and audio previews play in an in-app player |
-| <img src="docs/icons/library.svg" width="20"> | **Library** | Toggle installed mods on and off without deleting them, remove them cleanly, see files installed outside the manager |
-| <img src="docs/icons/filter.svg" width="20"> | **Filters and search** | Sort by date or name; filter by tag, hero or installed state; search across the whole catalog |
-| <img src="docs/icons/pack.svg" width="20"> | **Packs** | Open a themed pack, drop the mods you don't want, save the result as your own pack |
-| <img src="docs/icons/preset.svg" width="20"> | **Presets** | Save named sets of enabled mods and switch between them in one click |
-| <img src="docs/icons/font.svg" width="20"> | **Fonts and cursors** | Installed into game files with a backup of the originals; removal restores vanilla |
-| <img src="docs/icons/tools.svg" width="20"> | **Tools** | Download and launch community utilities (Background Changer, ItemsFix, Compiler) from the app |
-| <img src="docs/icons/update.svg" width="20"> | **Auto-updates** | The app checks GitHub Releases and installs new versions itself |
+Mods shown in this launcher are sourced from the Dota2Skins website: https://dota2skins.vercel.app/
 
-<div align="center">
-  <img src="docs/screenshots/catalog.png" alt="Catalog with filters" width="49%">
-  <img src="docs/screenshots/player.png" alt="Built-in preview player" width="49%">
-</div>
+This repository contains the desktop launcher; download installers from Releases.
 
 ## Installation
 
