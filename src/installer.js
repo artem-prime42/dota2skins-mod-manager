@@ -11,6 +11,7 @@ const FONTS_SUBDIR = ['dota', 'panorama', 'fonts'];
 const CURSOR_SUBDIR = ['dota', 'resource', 'cursor'];
 
 function fileUrl(categoryId, fileRef) {
+  if (!fileRef) return null;
   if (/^https?:\/\//i.test(fileRef)) return fileRef;
   return `${RAW_BASE}/assets/files/${categoryId}/${encodeURIComponent(fileRef)}`;
 }

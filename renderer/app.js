@@ -393,7 +393,10 @@ function catName(id) {
 function catIcon(id) { return CAT_ICON[id] || 'extension'; }
 
 function resolveHeroPreview(hero) {
-  const raw = hero?.preview || HERO_PREVIEW_FALLBACKS[hero?.slug] || HERO_PREVIEW_FALLBACKS[hero?.id];
+  const slug = (hero?.slug || hero?.id || '').toString().toLowerCase();
+  const explicit = HERO_PREVIEW_FALLBACKS[slug];
+  if (explicit) return explicit;
+  const raw = hero?.preview || null;
   if (!raw) return null;
   if (/^https?:\/\//i.test(raw)) return raw;
   return `${RAW_BASE}/${raw.split('/').map(encodeURIComponent).join('/')}`;
@@ -778,8 +781,7 @@ function renderCategory(categoryId) {
       gridHtml = '<div class="empty-note">Нет доступных героев</div>';
     } else {
       const heroCards = filteredHeroes.map((hero) => {
-        const heroPreview = hero.preview || null;
-        const previewUrlValue = resolveHeroPreview(hero) || heroPreview;
+        const previewUrlValue = resolveHeroPreview(hero);
         const previewHtml = previewUrlValue ? `<div class="hero-card-media">${mediaHtml(previewUrl('heroes', previewUrlValue))}</div>` : '';
         return `
           <div class="card hero-card" data-hero="${esc(hero.slug)}">

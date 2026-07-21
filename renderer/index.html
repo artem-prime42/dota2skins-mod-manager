@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https://raw.githubusercontent.com data:; media-src https://raw.githubusercontent.com; connect-src 'self'">
-  <title>Dota 2 Mod Manager</title>
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https: blob:; media-src 'self' https: data: blob:; connect-src 'self' https:">
+  <title>Dota2skins</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -22,18 +22,9 @@
     <header id="titlebar">
       <div class="tb-brand">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l7 4v8l-7 8-7-8V6z"/><path d="M12 8v6"/><path d="M9 11h6"/></svg>
-        <span class="tb-title">Mod Manager</span>
+        <span class="tb-title">Dota2skins</span>
         <span class="tb-sub">Dota 2</span>
       </div>
-
-      <nav id="tbNav">
-        <button class="tb-tab active" data-view="catalog">Каталог</button>
-        <button class="tb-tab" data-view="library">Библиотека<span class="tb-badge" id="libCount"></span></button>
-        <button class="tb-tab" data-view="presets">Пресеты</button>
-        <button class="tb-tab" data-view="tools">Инструменты</button>
-        <button class="tb-tab" data-view="guides">Гайды</button>
-        <button class="tb-tab" data-view="settings">Настройки</button>
-      </nav>
 
       <div class="tb-spacer"></div>
 
@@ -45,19 +36,35 @@
 
       <div class="tb-controls">
         <button class="tb-ctl" id="winMin" aria-label="Свернуть"><svg viewBox="0 0 12 12" width="12" height="12"><line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.2"/></svg></button>
-        <button class="tb-ctl" id="winMax" aria-label="Развернуть"><svg viewBox="0 0 12 12" width="12" height="12"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2" rx="1"/></svg></button>
         <button class="tb-ctl tb-close" id="winClose" aria-label="Закрыть"><svg viewBox="0 0 12 12" width="12" height="12"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></button>
       </div>
     </header>
 
     <!-- Body -->
     <div id="body">
-      <!-- Category rail (catalog view only) -->
-      <aside id="catRail" class="cat-rail"></aside>
+      <div class="body-main">
+        <!-- Category rail (catalog view only) -->
+        <aside id="catRail" class="cat-rail"></aside>
 
-      <main id="main">
-        <div id="view-root"></div>
-      </main>
+        <main id="main">
+          <div id="view-root"></div>
+        </main>
+      </div>
+
+      <aside class="side-panel">
+        <div class="side-brand">
+          <div class="side-brand-title">Dota2skins</div>
+        </div>
+        <div class="side-nav">
+          <button class="tb-tab side-tab active" data-view="catalog">Каталог</button>
+          <button class="tb-tab side-tab" data-view="library">Библиотека<span class="tb-badge" id="libCount"></span></button>
+          <button class="tb-tab side-tab" data-view="presets">Пресеты</button>
+          <button class="tb-tab side-tab" data-view="authors">Авторы</button>
+          <button class="tb-tab side-tab" data-view="tools">Инструменты</button>
+          <button class="tb-tab side-tab" data-view="settings">Настройки</button>
+        </div>
+        <button class="side-launch" id="launchDotaBtn"><span class="ms">play_arrow</span><span>Запустить Dota 2</span></button>
+      </aside>
     </div>
 
     <!-- Status footer strip -->

@@ -1,14 +1,18 @@
-// Catalog: fetch + cache mods.json / constants.json / guides.json from the Dota2PornFx repo
+// Catalog: fetch + cache catalog payload from the Dota2Skins site or a local file.
 const fs = require('fs');
 const path = require('path');
+const { loadSiteCatalog } = require('./catalog-site-adapter');
 
-const RAW_BASE = 'https://raw.githubusercontent.com/h6rd/Dota2PornFxWeb/main';
-const DATA_FILES = ['mods.json', 'constants.json', 'guides.json'];
+const DEFAULT_BASE = 'https://raw.githubusercontent.com/artem-prime42/dota2-mod-manager-catalog/main';
+const DEFAULT_CATALOG_URL = `${DEFAULT_BASE}/catalog.json`;
+const DEFAULT_DATA_FILE = 'catalog.json';
+const RAW_BASE = DEFAULT_BASE;
 
 class Catalog {
-  constructor(userDataDir) {
+  constructor(userDataDir, opts = {}) {
     this.cacheDir = path.join(userDataDir, 'catalog-cache');
     fs.mkdirSync(this.cacheDir, { recursive: true });
+    this.source = opts.source || { type: 'remote', url: process.env.DOTA2SKINS_CATALOG_URL || DEFAULT_CATALOG_URL };
   }
 
   cachePath(name) {
@@ -25,30 +29,51 @@ class Catalog {
   }
 
   hasCache() {
-    return DATA_FILES.every((f) => fs.existsSync(this.cachePath(f)));
+    return fs.existsSync(this.cachePath(DEFAULT_DATA_FILE));
   }
 
   async refresh() {
-    for (const name of DATA_FILES) {
-      const res = await fetch(`${RAW_BASE}/assets/data/${name}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status} while fetching ${name}`);
-      const text = await res.text();
-      JSON.parse(text); // validate before persisting
-      fs.writeFileSync(this.cachePath(name), text);
+    let parsed;
+    let text;
+    if (this.source.type === 'file') {
+      text = fs.readFileSync(this.source.filePath, 'utf-8');
+      parsed = JSON.parse(text);
+    } else if (this.source.type === 'site') {
+      parsed = loadSiteCatalog(this.source.siteRoot);
+      text = JSON.stringify(parsed);
+    } else {
+      try {
+        const res = await fetch(this.source.url || DEFAULT_CATALOG_URL);
+        if (!res.ok) throw new Error(`HTTP ${res.status} while fetching catalog`);
+        text = await res.text();
+        parsed = JSON.parse(text);
+      } catch (err) {
+        if (this.source.fallbackSiteRoot) {
+          parsed = loadSiteCatalog(this.source.fallbackSiteRoot);
+          text = JSON.stringify(parsed);
+        } else {
+          throw err;
+        }
+      }
     }
+
+    fs.writeFileSync(this.cachePath(DEFAULT_DATA_FILE), text);
     fs.writeFileSync(this.cachePath('meta.json'), JSON.stringify({ fetchedAt: Date.now() }));
+    return parsed;
   }
 
   async load({ forceRefresh = false } = {}) {
-    if (forceRefresh || !this.hasCache()) {
+    const shouldRefresh = forceRefresh || !this.hasCache() || this.source.type === 'site';
+    if (shouldRefresh) {
       await this.refresh();
     }
-    const out = { fetchedAt: this.cacheInfo().fetchedAt };
-    for (const name of DATA_FILES) {
-      out[name.replace('.json', '')] = JSON.parse(fs.readFileSync(this.cachePath(name), 'utf-8'));
-    }
-    return out;
+    const text = fs.readFileSync(this.cachePath(DEFAULT_DATA_FILE), 'utf-8');
+    const parsed = JSON.parse(text);
+    return {
+      ...parsed,
+      fetchedAt: this.cacheInfo().fetchedAt,
+    };
   }
 }
 
-module.exports = { Catalog, RAW_BASE };
+module.exports = { Catalog, DEFAULT_BASE, DEFAULT_CATALOG_URL, RAW_BASE };

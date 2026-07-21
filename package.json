@@ -10,11 +10,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TheFleece/dota2-mod-manager.git"
+    "url": "https://github.com/artem-prime42/dota2-mod-manager.git"
   },
   "author": "Mykhailo Lynnyk",
   "license": "GPL-3.0",
-  "homepage": "https://github.com/TheFleece/dota2-mod-manager",
+  "homepage": "https://github.com/artem-prime42/dota2-mod-manager",
   "devDependencies": {
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8"
@@ -51,7 +51,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "TheFleece",
+      "owner": "artem-prime42",
       "repo": "dota2-mod-manager",
       "releaseType": "release"
     }

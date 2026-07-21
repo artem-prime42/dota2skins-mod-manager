@@ -2,6 +2,12 @@ const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/artem-prime42/dota2-mod-manager-catalog/main/catalog.json';
+
+function resolveCatalogSource() {
+  return { type: 'remote', url: process.env.DOTA2SKINS_CATALOG_URL || DEFAULT_CATALOG_URL };
+}
+
 let autoUpdater = null;
 try {
   ({ autoUpdater } = require('electron-updater'));
@@ -22,10 +28,12 @@ function sendProgress(evt) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1360,
+    width: 1420,
     height: 860,
-    minWidth: 1020,
-    minHeight: 640,
+    minWidth: 1420,
+    minHeight: 860,
+    resizable: false,
+    maximizable: false,
     backgroundColor: '#050506',
     autoHideMenuBar: true,
     frame: false,
@@ -92,7 +100,7 @@ app.whenReady().then(async () => {
   diag('whenReady');
   const userData = app.getPath('userData');
   settings = new Settings(userData);
-  catalog = new Catalog(userData);
+  catalog = new Catalog(userData, { source: resolveCatalogSource(userData) });
   library = new Library(userData);
   installer = new Installer({
     userDataDir: userData,
@@ -117,6 +125,12 @@ app.whenReady().then(async () => {
 function setupAutoUpdate() {
   if (!autoUpdater || !app.isPackaged) return;
   autoUpdater.autoDownload = true;
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'artem-prime42',
+    repo: 'dota2-mod-manager',
+    private: false,
+  });
   autoUpdater.on('update-available', (info) => {
     if (win && !win.isDestroyed()) win.webContents.send('update', { type: 'available', version: info.version });
   });
@@ -339,6 +353,30 @@ function registerIpc() {
   ipcMain.handle('misc:openExternal', (e, url) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { ok: true };
+  });
+
+  ipcMain.handle('misc:launchDota', async () => {
+    try {
+      const gamePath = settings.get('dotaGamePath');
+      const candidates = [];
+      if (gamePath) {
+        const base = gamePath.replace(/[\\/]+$/, '');
+        candidates.push(path.join(base, 'dota2.exe'));
+        candidates.push(path.join(base, 'dota2'));
+        candidates.push(path.join(base, 'dota2.sh'));
+        candidates.push(path.join(base, 'dota2.x86_64'));
+      }
+      for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+          const result = await shell.openPath(candidate);
+          return result === '' ? { ok: true } : { error: result };
+        }
+      }
+      const steamResult = await shell.openExternal('steam://rungameid/570');
+      return steamResult === '' ? { ok: true } : { error: steamResult };
+    } catch (err) {
+      return { error: String(err.message || err) };
+    }
   });
 
   ipcMain.handle('misc:cacheSize', () => installer.downloadCacheSize());

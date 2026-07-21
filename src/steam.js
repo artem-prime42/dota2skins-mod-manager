@@ -1,6 +1,7 @@
-// Steam / Dota 2 installation discovery (Windows)
+// Steam / Dota 2 installation discovery (Windows + Linux)
 const { execFile } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 function regQuery(hive, key, value) {
@@ -14,7 +15,6 @@ function regQuery(hive, key, value) {
 }
 
 function parseLibraryFolders(vdfText) {
-  // libraryfolders.vdf: "path" "C:\\..." entries
   const paths = [];
   const re = /"path"\s+"([^"]+)"/g;
   let m;
@@ -25,17 +25,50 @@ function parseLibraryFolders(vdfText) {
 }
 
 async function findSteamRoot() {
-  const candidates = [
-    await regQuery('HKCU', 'SOFTWARE\\Valve\\Steam', 'SteamPath'),
-    await regQuery('HKLM', 'SOFTWARE\\WOW6432Node\\Valve\\Steam', 'InstallPath'),
-    await regQuery('HKLM', 'SOFTWARE\\Valve\\Steam', 'InstallPath'),
-  ];
+  const candidates = [];
+  if (process.platform === 'win32') {
+    candidates.push(
+      await regQuery('HKCU', 'SOFTWARE\\Valve\\Steam', 'SteamPath'),
+      await regQuery('HKLM', 'SOFTWARE\\WOW6432Node\\Valve\\Steam', 'InstallPath'),
+      await regQuery('HKLM', 'SOFTWARE\\Valve\\Steam', 'InstallPath'),
+    );
+  }
+
+  const home = os.homedir();
+  if (process.platform === 'linux') {
+    candidates.push(
+      path.join(home, '.steam', 'steam'),
+      path.join(home, '.steam', 'root', 'steam'),
+      path.join(home, '.var', 'app', 'com.valvesoftware.Steam', '.steam', 'steam'),
+      '/mnt/steam',
+    );
+  }
+
   for (let c of candidates) {
     if (!c) continue;
-    c = c.replace(/\//g, '\\');
+    c = c.replace(/\//g, path.sep);
     if (fs.existsSync(c)) return c;
   }
   return null;
+}
+
+function findLinuxSteamLibraryCandidates(steamRoot) {
+  const home = os.homedir();
+  const libs = [];
+  const vdfCandidates = [
+    path.join(steamRoot, 'steamapps', 'libraryfolders.vdf'),
+    path.join(steamRoot, 'steamapps', 'libraryfolders.vdf.bak'),
+    path.join(home, '.steam', 'steam', 'steamapps', 'libraryfolders.vdf'),
+    path.join(home, '.steam', 'root', 'steam', 'steamapps', 'libraryfolders.vdf'),
+  ];
+  for (const vdf of vdfCandidates) {
+    if (!fs.existsSync(vdf)) continue;
+    try {
+      const parsed = parseLibraryFolders(fs.readFileSync(vdf, 'utf-8'));
+      libs.push(...parsed);
+    } catch { /* ignore */ }
+  }
+  return libs;
 }
 
 async function findDotaGamePath() {
@@ -43,6 +76,7 @@ async function findDotaGamePath() {
   const libs = [];
   if (steamRoot) {
     libs.push(steamRoot);
+    libs.push(...findLinuxSteamLibraryCandidates(steamRoot));
     const vdf = path.join(steamRoot, 'steamapps', 'libraryfolders.vdf');
     if (fs.existsSync(vdf)) {
       try {
@@ -50,20 +84,32 @@ async function findDotaGamePath() {
       } catch { /* ignore parse errors, fall back to scan */ }
     }
   }
-  // common fallback locations on all drives
-  for (const drive of 'CDEFGH') {
+
+  if (process.platform === 'win32') {
+    for (const drive of 'CDEFGH') {
+      libs.push(
+        `${drive}:\\Program Files (x86)\\Steam`,
+        `${drive}:\\Program Files\\Steam`,
+        `${drive}:\\Steam`,
+        `${drive}:\\Games\\Steam`,
+        `${drive}:\\SteamLibrary`
+      );
+    }
+  } else {
     libs.push(
-      `${drive}:\\Program Files (x86)\\Steam`,
-      `${drive}:\\Program Files\\Steam`,
-      `${drive}:\\Steam`,
-      `${drive}:\\Games\\Steam`,
-      `${drive}:\\SteamLibrary`
+      path.join(os.homedir(), '.steam', 'steam', 'steamapps', 'common', 'dota 2 beta', 'game'),
+      path.join(os.homedir(), '.steam', 'root', 'steam', 'steamapps', 'common', 'dota 2 beta', 'game'),
+      '/home/steam/steam/steamapps/common/dota 2 beta/game',
+      '/mnt/games/steam/steamapps/common/dota 2 beta/game',
+      '/usr/games/steam/steamapps/common/dota 2 beta/game',
     );
   }
+
   const seen = new Set();
   for (const lib of libs) {
     if (!lib || seen.has(lib.toLowerCase())) continue;
     seen.add(lib.toLowerCase());
+    if (fs.existsSync(path.join(lib, 'dota'))) return lib;
     const game = path.join(lib, 'steamapps', 'common', 'dota 2 beta', 'game');
     if (fs.existsSync(path.join(game, 'dota'))) return game;
   }
