@@ -7,7 +7,7 @@
 
   <p>
     <a href="https://github.com/artem-prime42/dota2skins-mod-manager/releases/latest">
-      <img src="https://img.shields.io/github/v/release/TheFleece/dota2-mod-manager?style=for-the-badge&color=8b6ff0&label=Download" alt="Latest release">
+      <img src="https://img.shields.io/github/v/release/artem-prime42/dota2skins-mod-manager?style=for-the-badge&color=8b6ff0&label=Download" alt="Latest release">
     </a>
     <img src="https://img.shields.io/badge/Windows-10%2F11-201c2c?style=for-the-badge" alt="Windows">
     <img src="https://img.shields.io/badge/License-GPL--3.0-c4b5fd?style=for-the-badge" alt="License">
