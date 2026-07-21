@@ -1,6 +1,54 @@
 const fs = require('fs');
 const path = require('path');
 
+async function fetchText(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} while fetching ${url}`);
+  return res.text();
+}
+
+function buildRawGithubUrl(repoRoot, branch, relativePath) {
+  const repo = (repoRoot || '').replace(/\/$/, '');
+  const rel = (relativePath || '').replace(/\\/g, '/').replace(/^\//, '');
+  const rawRoot = repo.replace('https://github.com/', 'https://raw.githubusercontent.com/');
+  const base = `${rawRoot}/${branch || 'main'}/`;
+  return new URL(rel, base).toString();
+}
+
+async function readTextFromSource(source, relativePath = '') {
+  if (!source) {
+    throw new Error('Catalog source is required');
+  }
+
+  if (typeof source === 'string') {
+    if (/^https?:\/\//.test(source)) {
+      return fetchText(source);
+    }
+    return fs.readFileSync(path.join(source, relativePath), 'utf8');
+  }
+
+  if (source.siteRoot) {
+    if (/^https?:\/\//.test(source.siteRoot)) {
+      return fetchText(buildRawGithubUrl(source.siteRoot, source.branch || 'main', relativePath));
+    }
+    return fs.readFileSync(path.join(source.siteRoot, relativePath), 'utf8');
+  }
+
+  if (source.repoRoot) {
+    return fetchText(buildRawGithubUrl(source.repoRoot, source.branch || 'main', relativePath));
+  }
+
+  if (source.dataUrl) {
+    return fetchText(source.dataUrl);
+  }
+
+  if (source.fileUrl) {
+    return fetchText(source.fileUrl);
+  }
+
+  throw new Error('Unsupported catalog source');
+}
+
 function parseStringValue(raw) {
   const text = (raw || '').trim();
   if (!text) return null;
@@ -43,11 +91,15 @@ function normalizeCategoryId(id) {
   return map[normalized] || normalized;
 }
 
-function loadHeroIcons(siteRoot) {
-  const heroIconsPath = path.join(siteRoot, 'app', 'lib', 'heroes.ts');
-  if (!fs.existsSync(heroIconsPath)) return {};
+async function loadHeroIcons(source) {
+  const relativeHeroIconsPath = path.join('app', 'lib', 'heroes.ts');
+  let text;
 
-  const text = fs.readFileSync(heroIconsPath, 'utf8');
+  try {
+    text = await readTextFromSource(source, relativeHeroIconsPath);
+  } catch {
+    return {};
+  }
   const blockMatch = text.match(/const\s+LOCAL_HERO_ICONS\s*:\s*Record<string,\s*string>\s*=\s*\{([\s\S]*?)\n\};/m);
   if (!blockMatch) return {};
 
@@ -60,11 +112,15 @@ function loadHeroIcons(siteRoot) {
   return out;
 }
 
-function loadAuthorProfiles(siteRoot) {
-  const profilesPath = path.join(siteRoot, 'app', 'lib', 'authors-profiles.ts');
-  if (!fs.existsSync(profilesPath)) return [];
+async function loadAuthorProfiles(source) {
+  const relativeProfilesPath = path.join('app', 'lib', 'authors-profiles.ts');
+  let text;
 
-  const text = fs.readFileSync(profilesPath, 'utf8');
+  try {
+    text = await readTextFromSource(source, relativeProfilesPath);
+  } catch {
+    return [];
+  }
   const match = text.match(/export const AUTHORS_PROFILES\s*(?::\s*[^=]+)?\s*=\s*\{([\s\S]*?)\n\};/m);
   if (!match) return [];
 
@@ -92,17 +148,19 @@ function loadAuthorProfiles(siteRoot) {
   return entries;
 }
 
-function loadSiteCatalog(siteRoot) {
-  const sourcePath = path.join(siteRoot, 'app', 'lib', 'hero-skins.ts');
-  if (!fs.existsSync(sourcePath)) {
-    throw new Error(`Не найден файл ${sourcePath}`);
-  }
+async function loadSiteCatalog(source) {
+  const relativeSourcePath = path.join('app', 'lib', 'hero-skins.ts');
+  let text;
 
-  const text = fs.readFileSync(sourcePath, 'utf8');
+  try {
+    text = await readTextFromSource(source, relativeSourcePath);
+  } catch (err) {
+    throw new Error(`Не удалось загрузить каталог сайта: ${err.message}`);
+  }
   const lines = text.split(/\r?\n/);
   const modEntries = [];
   const heroEntries = [];
-  const heroIcons = loadHeroIcons(siteRoot);
+  const heroIcons = await loadHeroIcons(source);
   let inTargetSection = false;
   let currentSection = null;
   let currentObject = null;
@@ -271,7 +329,7 @@ function loadSiteCatalog(siteRoot) {
     .filter((id) => id !== 'heroesByHero')
     .map((id) => ({ id, label: id, preview: categoryPreviewMap[id] || null }));
 
-  const authorProfiles = loadAuthorProfiles(siteRoot);
+  const authorProfiles = await loadAuthorProfiles(source);
   const authorMods = new Map();
   for (const mod of Object.values(grouped).flat()) {
     const author = (mod.author || '').toString().trim();

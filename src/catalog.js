@@ -12,7 +12,14 @@ class Catalog {
   constructor(userDataDir, opts = {}) {
     this.cacheDir = path.join(userDataDir, 'catalog-cache');
     fs.mkdirSync(this.cacheDir, { recursive: true });
-    this.source = opts.source || { type: 'remote', url: process.env.DOTA2SKINS_CATALOG_URL || DEFAULT_CATALOG_URL };
+    const defaultSource = process.env.DOTA2SKINS_CATALOG_URL
+      ? { type: 'remote', url: process.env.DOTA2SKINS_CATALOG_URL }
+      : {
+          type: 'site',
+          repoRoot: process.env.DOTA2SKINS_SITE_REPO || 'https://github.com/artem-prime42/dota2-mod-manager-catalog',
+          dataUrl: process.env.DOTA2SKINS_SITE_CATALOG_URL || DEFAULT_CATALOG_URL,
+        };
+    this.source = opts.source || defaultSource;
   }
 
   cachePath(name) {
@@ -39,8 +46,16 @@ class Catalog {
       text = fs.readFileSync(this.source.filePath, 'utf-8');
       parsed = JSON.parse(text);
     } else if (this.source.type === 'site') {
-      parsed = loadSiteCatalog(this.source.siteRoot);
-      text = JSON.stringify(parsed);
+      const dataUrl = this.source.dataUrl || this.source.fileUrl;
+      if (dataUrl) {
+        const res = await fetch(dataUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status} while fetching catalog`);
+        text = await res.text();
+        parsed = JSON.parse(text);
+      } else {
+        parsed = await loadSiteCatalog(this.source);
+        text = JSON.stringify(parsed);
+      }
     } else {
       try {
         const res = await fetch(this.source.url || DEFAULT_CATALOG_URL);

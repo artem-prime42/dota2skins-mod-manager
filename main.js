@@ -2,10 +2,20 @@ const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/artem-prime42/dota2skins-mod-manager/main/catalog.json';
+const DEFAULT_CATALOG_REPO = 'https://github.com/artem-prime42/dota2-mod-manager-catalog';
+const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/artem-prime42/dota2-mod-manager-catalog/main/catalog.json';
 
 function resolveCatalogSource() {
-  return { type: 'remote', url: process.env.DOTA2SKINS_CATALOG_URL || DEFAULT_CATALOG_URL };
+  const envCatalogUrl = process.env.DOTA2SKINS_CATALOG_URL;
+  if (envCatalogUrl) {
+    return { type: 'remote', url: envCatalogUrl };
+  }
+
+  return {
+    type: 'site',
+    repoRoot: process.env.DOTA2SKINS_SITE_REPO || DEFAULT_CATALOG_REPO,
+    dataUrl: process.env.DOTA2SKINS_SITE_CATALOG_URL || DEFAULT_CATALOG_URL,
+  };
 }
 
 let autoUpdater = null;
